@@ -1,0 +1,9 @@
+    # BlockStorage Application    
+    WSGIDaemonProcess blockstorage processes=1 threads=10
+    WSGIScriptAlias /blockstorage /var/www/webapps/blockstorage/code.py
+    WSGIProcessGroup blockstorage
+    # FileStorage Application    
+    WSGIDaemonProcess filestorage processes=1 threads=10
+    WSGIScriptAlias /filestorage /var/www/webapps/filestorage/code.py
+    AddType text/html .py
+

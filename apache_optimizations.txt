@@ -1,0 +1,14 @@
+only leave these modules loaded, all other can
+be disabled for this webapp
+
+access_compat.load  
+alias.conf
+authn_core.load
+alias.load
+authz_core.load
+auth_basic.loadmime.conf
+mpm_worker.load
+mime.load
+mpm_worker.conf
+wsgi.conf
+wsgi.load
