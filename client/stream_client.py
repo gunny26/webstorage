@@ -1,5 +1,4 @@
-#ndard.at/!/usr/bin/python
-
+#!/usr/bin/python
 import sys
 import time
 import logging
@@ -10,8 +9,8 @@ from WebStorageClient import FileStorageClient as FileStorageClient
 
 if __name__ == "__main__":
     BLOCKSIZE = 1024 * 1024
-    bs = BlockStorageClient("http://srvlxtest1.tilak.cc/blockstorage")
-    fs = FileStorageClient("http://srvlxtest1.tilak.cc/filestorage", bs, BLOCKSIZE)
+    bs = BlockStorageClient("http://odroid.op226/blockstorage")
+    fs = FileStorageClient("http://odroid.op226/filestorage", bs, BLOCKSIZE)
     fh = open(sys.argv[1], "wb")
     # FileStorage Tests
     starttime = time.time()
