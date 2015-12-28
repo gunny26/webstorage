@@ -12,8 +12,7 @@ urls = ("/(.*)", "FileStorage",
         )
 
 # add wsgi functionality
-basedir = "/var/www"
-storage_dir = "/var/www/.filestorage"
+storage_dir = "/media/webstorage/filestorage"
 
 
 class FileStorage(object):

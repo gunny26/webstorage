@@ -12,8 +12,7 @@ urls = ("/(.*)", "BlockStorage",
         )
 
 # add wsgi functionality
-basedir = "/var/www"
-blockstorage = "/var/www/.blockstorage"
+blockstorage = "/media/webstorage/blockstorage"
 
 
 class BlockStorage(object):
