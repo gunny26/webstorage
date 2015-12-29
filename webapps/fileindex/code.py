@@ -3,7 +3,8 @@
 import web
 import os
 import logging
-logging.basicConfig(level=logging.DEBUG)
+FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
+logging.basicConfig(level=logging.DEBUG, format=FORMAT)
 import hashlib
 import json
 
@@ -45,8 +46,14 @@ class FileIndex(object):
         """
         check if block with digest exists
         """
-        if os.path.isfile(self.__get_filename(args)):
-            web.ctx.status = '200 Exists'
+	logging.info("EXISTS called with %s", args)
+        filename = self.__get_filename(args)
+        if os.path.isfile(filename):
+            logging.info("found file %s", filename)
+            web.ctx.status = '200 file exists'
+        elif os.path.isdir(filename):
+            logging.info("found directory %s", filename)
+            web.ctx.status = '201 directory exists'
         else:
             web.notfound()
 
@@ -56,16 +63,25 @@ class FileIndex(object):
         """
         #logging.debug("POST called")
         filename = self.__get_filename(args)
-        checksum = json.loads(web.data())
-        if checksum is not None:
+        if len(web.data()) != 0:
+            checksum = json.loads(web.data())
             if not os.path.isfile(filename):
                 try:
                     json.dump(checksum, open(filename, "wb"))
                     web.ctx.status = '201 metadata stored'
                 except TypeError:
                     os.unlink(filename)
+            else:
+                 try:
+                    json.dump(checksum, open(filename, "wb"))
+                    web.ctx.status = '202 metadata overwritten'
+                    logging.info("file %s overwritten", filename)
+                 except TypeError:
+                    pass
         else:
-            return "Hello World"
+            logging.info("creating directory %s", filename)
+            os.mkdir(filename)
+            web.ctx.status = '203 directory created'
     PUT = POST
 
     def DELETE(self, args):

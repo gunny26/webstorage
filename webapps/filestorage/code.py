@@ -58,7 +58,14 @@ class FileStorage(object):
         """
         #logging.debug("POST called")
         metadata = json.loads(web.data())
-        assert metadata["checksum"] == md5
+	try:
+            assert metadata["checksum"] == md5
+	except AssertionError as exc:
+            logging.error("metadata: %s, md5: %s", metadata, md5)
+            raise exc
+	except TypeError as exc:
+            logging.error("metadata: %s, md5: %s", metadata, md5)
+            raise exc
         if metadata is not None:
             if not os.path.isfile(self.__get_filename(md5)):
                 try:
