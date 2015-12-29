@@ -1,0 +1,45 @@
+# on ubunut 14.04.x
+#
+# first install apache2
+sudo apt-get install apache2
+# next install wsgi for python 2.x
+sudo apt-get install libapache2-mod-wsgi
+# and next web.py
+sudo apt-get install python-webpy
+# next configure default site or every other NameVirtualHost
+# to start wsgi applications
+# something like this
+
+    # BlockStorage Application    
+    WSGIDaemonProcess blockstorage processes=1 threads=10
+    WSGIScriptAlias /blockstorage /var/www/webstorage/webapps/blockstorage/code.py
+    WSGIProcessGroup blockstorage
+    # FileStorage Application    
+    WSGIDaemonProcess filestorage processes=1 threads=10
+    WSGIScriptAlias /filestorage /var/www/webstorage/webapps/filestorage/code.py
+
+# additional optimize apache for minimal memory usage
+a2dismod authn_file
+a2dismod authz_host
+a2dismod authz_user
+a2dismod autoindex
+a2dismod deflate
+a2dismod dir
+a2dismod env
+a2dismod filter
+a2dismod negotiation
+a2dismod setenvif
+a2dismod status
+a2dismod alias
+a2dismod mime
+service apache2 restart
+
+# at last define some directories to store data
+# these dierctory must be fully accessible for the webserver user
+# on my example server i mounted /dev/sda on /media/webstorage
+mkdir /media/webstorage
+mount /dev/sda1 /media/webstorage
+mkdir /media/webstorage/blockstorage
+chown www-run /media/webstorage/blockstorage
+mkdir /media/webstorage/filestorage
+chown www-run /media/webstorage/filestorage
