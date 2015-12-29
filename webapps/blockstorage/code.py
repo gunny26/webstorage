@@ -12,7 +12,7 @@ urls = ("/(.*)", "BlockStorage",
 
 # add wsgi functionality
 CONFIG = {}
-for line in open("filestorage.ini", "rb"):
+for line in open("/var/www/webstorage/webapps/blockstorage/blockstorage.ini", "rb"):
     key, value = line.strip().split("=")
     CONFIG[key] = value
 STORAGE_DIR = CONFIG["STORAGE_DIR"]
@@ -33,7 +33,6 @@ class BlockStorage(object):
         """
 	    get block stored in blockstorage directory with hash
         """
-        logging.debug("GET called, md5=%s", md5)
         if os.path.isfile(self.__get_filename(md5)):
             web.header('Content-Type', 'application/octet-stream')
             return open(self.__get_filename(md5), "rb").read()
@@ -45,11 +44,10 @@ class BlockStorage(object):
         """
         check if block with digest exists
         """
-        logging.debug("EXISTS called, md5=%s", md5)
         if os.path.exists(self.__get_filename(md5)):
-            web.ctx.status = '200 Exists'
+            web.ctx.status = '200 exists'
         else:
-            web.notfound()
+            web.ctx.status = '201 does not exists'
 
     def POST(self, args):
         """
@@ -81,7 +79,6 @@ class BlockStorage(object):
 
         the block should only be deleted if not used anymore in any FileStorage
         """
-        logging.debug("DELETE called, md5=%s", md5)
         if os.path.exists(self.__get_filename(md5)):
             os.unlink(self.__get_filename(md5))
             web.ctx.status = '201 block deleted'

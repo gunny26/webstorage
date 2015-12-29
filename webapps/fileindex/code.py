@@ -12,7 +12,7 @@ urls = ("/(.*)", "FileIndex",
 
 # add wsgi functionality
 CONFIG = {}
-for line in open("fileindex.ini", "rb"):
+for line in open("/var/www/webstorage/webapps/fileindex/fileindex.ini", "rb"):
     key, value = line.strip().split("=")
     CONFIG[key] = value
 STORAGE_DIR = CONFIG["STORAGE_DIR"]
@@ -26,8 +26,8 @@ class FileIndex(object):
         if not os.path.exists(STORAGE_DIR):
             os.mkdir(STORAGE_DIR)
 
-    def __get_filename(self, subpath):
-        return os.path.join(STORAGE_DIR, "/".join(args))
+    def __get_filename(self, args):
+        return os.path.join(STORAGE_DIR, args)
 
     def GET(self, args):
         """
@@ -41,11 +41,11 @@ class FileIndex(object):
             logging.error("File %s does not exist", filename)
             web.notfound()
 
-    def EXISTS(self, md5):
+    def EXISTS(self, args):
         """
         check if block with digest exists
         """
-        if os.path.isfile(self.__get_filename(md5)):
+        if os.path.isfile(self.__get_filename(args)):
             web.ctx.status = '200 Exists'
         else:
             web.notfound()
