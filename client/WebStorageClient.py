@@ -9,11 +9,19 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 
+CONFIG={}
+for line in open("WebStorageClient.ini", "rb"):
+    key, value = line.strip().split("=")
+    CONFIG[key] = value
+
 class BlockStorageClient(object):
     """store chunks of data into blockstorage"""
 
     def __init__(self, url):
-        self.url = url
+        if url is None:
+            self.url = CONFIG["URL_BLOCKSTORAGE"]
+        else:
+            self.url = url
 
     def __call_url(self, method="GET", data=None, params=()):
         url = "/".join((self.url, "/".join(params)))
@@ -46,7 +54,9 @@ class BlockStorageClient(object):
 
     def exists(self, hexdigest):
         res = self.__call_url("EXISTS", params=(hexdigest,))
-        return res.code
+        if res.code == 200:
+            return True
+        return False
 
 
 class FileStorageClient(object):
@@ -55,7 +65,10 @@ class FileStorageClient(object):
     """
 
     def __init__(self, url, bs, blocksize=1024*1024):
-        self.url = url
+        if url is None:
+            self.url = CONFIG["URL_FILESTORAGE"]
+        else:
+            self.url = url
         self.bs = bs
         self.blocksize = blocksize
 
@@ -94,6 +107,30 @@ class FileStorageClient(object):
         metadata["checksum"] = filehash.hexdigest()
         self.__call_url("PUT", data=json.dumps(metadata), params=(metadata["checksum"], ))
         return metadata
+ 
+    def put_fast(self, fh):
+        """save data of fileobject in Blockstorage"""
+        def read_block():
+            return fh.read(self.blocksize)
+        metadata = {
+            "blockchain" : [],
+            "size" : 0,
+            "checksum" : None,
+        }
+        filehash = hashlib.md5()
+        for data in iter(read_block, ""):
+            filehash.update(data)
+            metadata["size"] += len(data)
+            md5 = hashlib.md5()
+            md5.update(data)
+            if not self.bs.exists(md5.hexdigest()):
+                checksum, status = self.bs.put(data)
+                metadata["blockchain"].append(checksum)
+            else:
+                metadata["blockchain"].append(md5.hexdigest())
+        metadata["checksum"] = filehash.hexdigest()
+        self.__call_url("PUT", data=json.dumps(metadata), params=(metadata["checksum"], ))
+        return metadata
             
     def get(self, hexdigest):
         metadata = json.loads(self.__call_url("GET", params=(hexdigest,)).read())
@@ -118,7 +155,10 @@ class FileIndexClient(object):
     """
 
     def __init__(self, url):
-        self.url = url
+        if url is None:
+            self.url = CONFIG["URL_FILEINDEX"]
+        else:
+            self.url = url
 
     def __call_url(self, method="GET", data=None, params=()):
         url = "/".join((self.url, "/".join(params)))
@@ -159,6 +199,7 @@ if __name__ == "__main__":
 
     # FileStorage Tests
     metadata = fs.put(open("/home/mesznera/Downloads/isos/VMware-vcb-64559.exe", "rb"))
+    metadata = fs.put_fast(open("/home/mesznera/Downloads/isos/VMware-vcb-64559.exe", "rb"))
     for block in fs.get(metadata["checksum"]):
         print len(block)
     print fs.exists(metadata["checksum"])

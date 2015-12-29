@@ -5,17 +5,18 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import FileStorageClient as FileStorageClient
+from WebStorageClient import FileIndexClient as FileIndexClient
 
 
 if __name__ == "__main__":
     BLOCKSIZE = 1024 * 1024
-    bs = BlockStorageClient("http://odroid.op226/blockstorage")
-    fs = FileStorageClient("http://odroid.op226/filestorage", bs, BLOCKSIZE)
-    fh = open(sys.argv[1], "wb")
+    bs = BlockStorageClient(None)
+    fs = FileStorageClient(None, bs, BLOCKSIZE)
+    fi = FileIndexClient(None)
     # FileStorage Tests
     starttime = time.time()
-    metadata = fs.put(sys.stdin)
+    metadata = fs.put_fast(sys.stdin)
     duration = time.time() - starttime
     print "stream stored with checksum %s, size %0.2f kb, duration %0.2f s, %0.2f kb/s" % (metadata["checksum"], metadata["size"] / 1024, duration, metadata["size"] / 1024 / duration)
-    fh.write(metadata["checksum"])
-    fh.close()
+    fi.put(sys.argv[1], metadata["checksum"])
+    print "Filename %s stored in FileIndex" % sys.argv[1]
