@@ -8,11 +8,15 @@ import hashlib
 import json
 
 urls = ("/(.*)", "FileStorage",
-        "/admin/(.*)", "FileStorageAdmin",
         )
 
 # add wsgi functionality
-storage_dir = "/media/webstorage/filestorage"
+CONFIG = {}
+for line in open("filestorage.ini", "rb"):
+    key, value = line.strip().strip("=")
+    CONFIG[key] = value
+STORAGE_DIR = CONFIG["STORAGE_DIR"]
+#storage_dir = "/media/webstorage/filestorage"
 
 
 class FileStorage(object):
@@ -20,11 +24,11 @@ class FileStorage(object):
 
     def __init__(self):
         """__init__"""
-        if not os.path.exists(storage_dir):
-            os.mkdir(storage_dir)
+        if not os.path.exists(STORAGE_DIR):
+            os.mkdir(STORAGE_DIR)
 
     def __get_filename(self, checksum):
-        return os.path.join(storage_dir, "%s.json" % checksum)
+        return os.path.join(STORAGE_DIR, "%s.json" % checksum)
 
     def GET(self, md5):
         """
@@ -88,23 +92,6 @@ class FileStorage(object):
             web.ctx.status = '201 metadata deleted'
         else:
             web.notfound()
-
-
-class BlockStorageAdmin(object):
-
-    def __init__(self):
-        self.logger = logging.getLogger("")
-
-    def GET(self, command):
-        if command == "ls":
-            return self.__ls()
-        
-    def __ls(self):
-        data = []
-        for filename in os.listdir(blockstorage):
-            data.append(filename)
-        web.header('Content-Type', 'application/json')
-        return(json.dumps(data))
 
 
 if __name__ == "__main__":

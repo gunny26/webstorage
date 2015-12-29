@@ -112,11 +112,50 @@ class FileStorageClient(object):
         res = self.__call_url("EXISTS", params=(hexdigest,))
         return res.code
 
+class FileIndexClient(object):
+    """
+    put some arbitrary file like data object into BlockStorage and remember how to reassemble it
+    """
+
+    def __init__(self, url):
+        self.url = url
+
+    def __call_url(self, method="GET", data=None, params=()):
+        url = "/".join((self.url, "/".join(params)))
+        #logging.info("calling %s %s", method, url)
+        try:
+            req = urllib2.Request(url, 
+                data,
+                {'Content-Type': 'application/octet-stream'})
+            req.get_method = lambda: method
+            res = urllib2.urlopen(req)
+            return res
+        except urllib2.HTTPError as exc:
+            logging.exception(exc)
+            logging.error("error calling %s %s", method, url)
+        except urllib2.URLError as exc:
+            logging.exception(exc)
+            logging.error("error calling %s %s", method, url)
+
+    def put(self, filename, checksum):
+        """save filename to checksum in FileIndex"""
+        return self.__call_url("PUT", data=json.dumps(checksum), params=filename.split("/"))
+            
+    def get(self, filename):
+        return self.__call_url("GET", data=None, params=filename.split("/"))
+
+    def delete(self, hexdigest):
+        return self.__call_url("DELETE", data=None, params=filename.split("/"))
+
+    def exists(self, hexdigest):
+        return self.__call_url("EXISTS", data=None, params=filename.split("/"))
+
 
 if __name__ == "__main__":
     BLOCKSIZE = 1024 * 1024
     bs = BlockStorageClient("http://srvlxtest1.tilak.cc/blockstorage")
     fs = FileStorageClient("http://srvlxtest1.tilak.cc/filestorage", bs, BLOCKSIZE)
+    fi = FileIndexClient("http://srvlxtest1.tilak.cc/fileindex")
 
     # FileStorage Tests
     metadata = fs.put(open("/home/mesznera/Downloads/isos/VMware-vcb-64559.exe", "rb"))
@@ -125,6 +164,9 @@ if __name__ == "__main__":
     print fs.exists(metadata["checksum"])
     print fs.view(metadata["checksum"])
     fs.delete(metadata["checksum"])
+
+    # FileIndex Tests
+    fi.put("testfile.dmp", metadata["checksum"])    
 
     # BlockStorage Tests
     fh = open("/home/mesznera/Downloads/isos/VMware-vcb-64559.exe", "rb")
