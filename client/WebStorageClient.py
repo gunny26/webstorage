@@ -14,16 +14,12 @@ for line in open("WebStorageClient.ini", "rb"):
     key, value = line.strip().split("=")
     CONFIG[key] = value
 
-class BlockStorageClient(object):
-    """store chunks of data into blockstorage"""
+class HTTP404(Exception):
+    pass
 
-    def __init__(self, url):
-        if url is None:
-            self.url = CONFIG["URL_BLOCKSTORAGE"]
-        else:
-            self.url = url
+class WebAppClient(object):
 
-    def __call_url(self, method="GET", data=None, params=()):
+    def _call_url(self, method="GET", data=None, params=()):
         url = "/".join((self.url, "/".join(params)))
         #logging.info("calling %s %s", method, url)
         try:
@@ -34,32 +30,44 @@ class BlockStorageClient(object):
             res = urllib2.urlopen(req)
             return res
         except urllib2.HTTPError as exc:
+            if exc.code == 404:
+                raise HTTP404()
             logging.exception(exc)
             logging.error("error calling %s %s", method, url)
         except urllib2.URLError as exc:
             logging.exception(exc)
             logging.error("error calling %s %s", method, url)
 
+
+class BlockStorageClient(WebAppClient):
+    """store chunks of data into blockstorage"""
+
+    def __init__(self, url):
+        if url is None:
+            self.url = CONFIG["URL_BLOCKSTORAGE"]
+        else:
+            self.url = url
+
     def put(self, data):
-        res = self.__call_url("PUT", data=data)
+        res = self._call_url("PUT", data=data)
         return json.loads(res.read()), res.code
             
     def get(self, hexdigest):
-        res = self.__call_url("GET", params=(hexdigest,))
+        res = self._call_url("GET", params=(hexdigest,))
         return res.read()
 
     def delete(self, hexdigest):
-        res = self.__call_url("DELETE", params=(hexdigest,))
+        res = self._call_url("DELETE", params=(hexdigest,))
         return res.code
 
     def exists(self, hexdigest):
-        res = self.__call_url("EXISTS", params=(hexdigest,))
+        res = self._call_url("EXISTS", params=(hexdigest,))
         if res.code == 200:
             return True
         return False
 
 
-class FileStorageClient(object):
+class FileStorageClient(WebAppClient):
     """
     put some arbitrary file like data object into BlockStorage and remember how to reassemble it
     """
@@ -71,23 +79,6 @@ class FileStorageClient(object):
             self.url = url
         self.bs = bs
         self.blocksize = blocksize
-
-    def __call_url(self, method="GET", data=None, params=()):
-        url = "/".join((self.url, "/".join(params)))
-        #logging.info("calling %s %s", method, url)
-        try:
-            req = urllib2.Request(url, 
-                data,
-                {'Content-Type': 'application/octet-stream'})
-            req.get_method = lambda: method
-            res = urllib2.urlopen(req)
-            return res
-        except urllib2.HTTPError as exc:
-            logging.exception(exc)
-            logging.error("error calling %s %s", method, url)
-        except urllib2.URLError as exc:
-            logging.exception(exc)
-            logging.error("error calling %s %s", method, url)
 
     def put(self, fh):
         """save data of fileobject in Blockstorage"""
@@ -105,7 +96,7 @@ class FileStorageClient(object):
             checksum, status = self.bs.put(data)
             metadata["blockchain"].append(checksum)
         metadata["checksum"] = filehash.hexdigest()
-        self.__call_url("PUT", data=json.dumps(metadata), params=(metadata["checksum"], ))
+        self._call_url("PUT", data=json.dumps(metadata), params=(metadata["checksum"], ))
         return metadata
  
     def put_fast(self, fh):
@@ -129,27 +120,27 @@ class FileStorageClient(object):
             else:
                 metadata["blockchain"].append(md5.hexdigest())
         metadata["checksum"] = filehash.hexdigest()
-        self.__call_url("PUT", data=json.dumps(metadata), params=(metadata["checksum"], ))
+        self._call_url("PUT", data=json.dumps(metadata), params=(metadata["checksum"], ))
         return metadata
             
     def get(self, hexdigest):
-        metadata = json.loads(self.__call_url("GET", params=(hexdigest,)).read())
+        metadata = json.loads(self._call_url("GET", params=(hexdigest,)).read())
         for block in metadata["blockchain"]:
             yield self.bs.get(block)
 
     def delete(self, hexdigest):
-        res = self.__call_url("DELETE", params=(hexdigest,))
+        res = self._call_url("DELETE", params=(hexdigest,))
         return res.code
 
     def view(self, hexdigest):
-        res = self.__call_url("GET", params=(hexdigest,))
+        res = self._call_url("GET", params=(hexdigest,))
         return json.loads(res.read())
 
     def exists(self, hexdigest):
-        res = self.__call_url("EXISTS", params=(hexdigest,))
+        res = self._call_url("EXISTS", params=(hexdigest,))
         return res.code
 
-class FileIndexClient(object):
+class FileIndexClient(WebAppClient):
     """
     put some arbitrary file like data object into BlockStorage and remember how to reassemble it
     """
@@ -160,35 +151,48 @@ class FileIndexClient(object):
         else:
             self.url = url
 
-    def __call_url(self, method="GET", data=None, params=()):
-        url = "/".join((self.url, "/".join(params)))
-        #logging.info("calling %s %s", method, url)
-        try:
-            req = urllib2.Request(url, 
-                data,
-                {'Content-Type': 'application/octet-stream'})
-            req.get_method = lambda: method
-            res = urllib2.urlopen(req)
-            return res
-        except urllib2.HTTPError as exc:
-            logging.exception(exc)
-            logging.error("error calling %s %s", method, url)
-        except urllib2.URLError as exc:
-            logging.exception(exc)
-            logging.error("error calling %s %s", method, url)
-
-    def put(self, filename, checksum):
+    def put(self, filepath, checksum):
         """save filename to checksum in FileIndex"""
-        return self.__call_url("PUT", data=json.dumps(checksum), params=filename.split("/"))
+        return self._call_url("PUT", data=json.dumps(checksum), params=filepath.split("/"))
             
-    def get(self, filename):
-        return self.__call_url("GET", data=None, params=filename.split("/"))
+    def get(self, filepath):
+        return self._call_url("GET", params=filepath.split("/"))
 
-    def delete(self, hexdigest):
-        return self.__call_url("DELETE", data=None, params=filename.split("/"))
+    def delete(self, filepath):
+        return self._call_url("DELETE", params=filepath.split("/"))
 
-    def exists(self, hexdigest):
-        return self.__call_url("EXISTS", data=None, params=filename.split("/"))
+    def exists(self, filepath):
+        try:
+            res = self._call_url("EXISTS", params=filepath.split("/"))
+            if res.code == 200:
+                return True
+            return False
+        except HTTP404:
+            return False
+
+    def isfile(self, filepath):
+        try:
+            res = self._call_url("EXISTS", params=filepath.split("/"))
+            if res.code == 200:
+                return True
+            return False
+        except HTTP404:
+            return False
+
+    def isdir(self, filepath):
+        try:
+            res = self._call_url("EXISTS", params=filepath.split("/"))
+            if res.code == 201:
+                return True
+            return False
+        except HTTP404:
+            return False
+
+    def mkdir(self, filepath):
+        if not self.exists(filepath):
+            res = self._call_url("PUT", params=filepath.split("/"))
+        else:
+            logging.error("file or directory %s exists")
 
 
 if __name__ == "__main__":
