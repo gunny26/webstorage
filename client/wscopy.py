@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import sys
+import os
 import time
 import logging
 logging.basicConfig(level=logging.DEBUG)
@@ -14,7 +15,10 @@ if __name__ == "__main__":
     fs = FileStorageClient(None, bs, BLOCKSIZE)
     fi = FileIndexClient(None)
     sourcename = sys.argv[1]
-    targetname = sys.argv[2]
+    try:
+        targetname = sys.argv[2]
+    except IndexError:
+        targetname = os.path.basename(sys.argv[1])
     if fi.isfile(targetname) is True:
         print "file %s already exists" % sys.argv[1]
         sys.exit(1)

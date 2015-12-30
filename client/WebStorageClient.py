@@ -194,6 +194,17 @@ class FileIndexClient(WebAppClient):
         else:
             logging.error("file or directory %s exists")
 
+    def copy(self, source, target):
+        if self.exists(source):
+            checksum = self.get(source)
+            self.put(target, checksum)
+        else:
+            logging.error("file or directory does not %s exist")
+
+    def move(self, source, target):
+        self.copy(source, target)
+        self.delete(source)
+
 
 if __name__ == "__main__":
     BLOCKSIZE = 1024 * 1024
