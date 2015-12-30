@@ -64,10 +64,10 @@ class BlockStorage(object):
                 fo.write(data)
                 fo.close()
                 web.ctx.status = '201 block stored'
-                logging.info("block %s stored", self.__get_filename(md5))
                 return json.dumps(digest.hexdigest())
             else:
-                web.ctx.status = '202 block existed'
+                web.ctx.status = '202 block exists'
+                logging.info("block %s already exists", self.__get_filename(md5))
                 return json.dumps(digest.hexdigest())
         else:
             return "Hello World"
