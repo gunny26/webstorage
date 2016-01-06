@@ -1,10 +1,12 @@
 #ndard.at/!/usr/bin/python
 
 import sys
+import os
 import json
 import urllib2
 import hashlib
 import time
+import tempfile
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -42,7 +44,7 @@ class WebAppClient(object):
 class BlockStorageClient(WebAppClient):
     """store chunks of data into blockstorage"""
 
-    def __init__(self, url):
+    def __init__(self, url=None):
         if url is None:
             self.url = CONFIG["URL_BLOCKSTORAGE"]
         else:
@@ -72,7 +74,7 @@ class FileStorageClient(WebAppClient):
     put some arbitrary file like data object into BlockStorage and remember how to reassemble it
     """
 
-    def __init__(self, url, bs, blocksize=1024*1024):
+    def __init__(self, bs, url=None, blocksize=1024*1024):
         if url is None:
             self.url = CONFIG["URL_FILESTORAGE"]
         else:
@@ -123,7 +125,7 @@ class FileStorageClient(WebAppClient):
         self._call_url("PUT", data=json.dumps(metadata), params=(metadata["checksum"], ))
         return metadata
             
-    def get(self, hexdigest):
+    def read(self, hexdigest):
         metadata = json.loads(self._call_url("GET", params=(hexdigest,)).read())
         for block in metadata["blockchain"]:
             yield self.bs.get(block)
@@ -132,7 +134,7 @@ class FileStorageClient(WebAppClient):
         res = self._call_url("DELETE", params=(hexdigest,))
         return res.code
 
-    def view(self, hexdigest):
+    def get(self, hexdigest):
         res = self._call_url("GET", params=(hexdigest,))
         return json.loads(res.read())
 
@@ -140,39 +142,70 @@ class FileStorageClient(WebAppClient):
         res = self._call_url("EXISTS", params=(hexdigest,))
         return res.code
 
+
 class FileIndexClient(WebAppClient):
     """
     put some arbitrary file like data object into BlockStorage and remember how to reassemble it
     """
 
-    def __init__(self, url):
+    def __init__(self, fs, url=None):
         if url is None:
             self.url = CONFIG["URL_FILEINDEX"]
         else:
             self.url = url
+        self.fs = fs
+
+    def urlcall(self, method, urlparams, data=None):
+        assert isinstance(urlparams, list)
+        assert isinstance(method, basestring)
+        return self._call_url("GET", data=data, params=[method.lower(), ] + urlparams)
 
     def put(self, filepath, checksum):
         """save filename to checksum in FileIndex"""
-        return self._call_url("PUT", data=json.dumps(checksum), params=filepath.split("/"))
+        return self.urlcall("put", filepath.split("/"), data=checksum)
             
     def get(self, filepath):
-        return self._call_url("GET", params=filepath.split("/"))
+        res = self.urlcall("get", filepath.split("/"))
+        checksum = res.read()
+        # TODO: remove this workaround
+        if checksum.startswith("\""):
+            checksum = checksum[1:-1]
+        return checksum
+
+    def read(self, filepath):
+        checksum = self.get(filepath)
+        return self.fs.read(checksum)
+
+    def write(self, fh, filepath):
+        metadata = self.fs.put(fh)
+        self.put(filepath, metadata["checksum"])
+
+    def listdir(self, filepath):
+        res = self.urlcall("listdir", filepath.split("/"))
+        return json.loads(res.read())
 
     def delete(self, filepath):
-        return self._call_url("DELETE", params=filepath.split("/"))
+        res = self.urlcall("delete", filepath.split("/"))
+        if res.code == 200:
+            return True
+        return False
 
     def exists(self, filepath):
         try:
-            res = self._call_url("EXISTS", params=filepath.split("/"))
+            res = self.urlcall("exists", filepath.split("/"))
             if res.code == 200:
                 return True
             return False
         except HTTP404:
             return False
 
+    def stats(self, filepath):
+        res = self.urlcall("stats", filepath.split("/"))
+        return json.loads(res.read())
+
     def isfile(self, filepath):
         try:
-            res = self._call_url("EXISTS", params=filepath.split("/"))
+            res = self.urlcall("exists", filepath.split("/"))
             if res.code == 200:
                 return True
             return False
@@ -181,16 +214,26 @@ class FileIndexClient(WebAppClient):
 
     def isdir(self, filepath):
         try:
-            res = self._call_url("EXISTS", params=filepath.split("/"))
+            res = self.urlcall("exists", filepath.split("/"))
             if res.code == 201:
                 return True
             return False
         except HTTP404:
             return False
 
+    def walk(self, filepath):
+        assert self.isdir(filepath)
+        result = []
+        for item in self.listdir(filepath):
+            if self.isfile(item):
+                result.append(item)
+            else:
+                result += self.walk(item)
+        return result
+
     def mkdir(self, filepath):
         if not self.exists(filepath):
-            res = self._call_url("PUT", params=filepath.split("/"))
+            res = self.urlcall("mkdir", filepath.split("/"))
         else:
             logging.error("file or directory %s exists")
 
@@ -206,8 +249,116 @@ class FileIndexClient(WebAppClient):
         self.delete(source)
 
 
-if __name__ == "__main__":
+import unittest
+class TestClass(unittest.TestCase):
+
     BLOCKSIZE = 1024 * 1024
+    bs = BlockStorageClient()
+    fs = FileStorageClient(bs=bs, blocksize=BLOCKSIZE)
+    fi = FileIndexClient(fs)
+
+    def no_test_fileindex(self):
+        """
+        complete walk over every file,
+        test existance of every used block
+        """
+        # this should be directory
+        data = self.fi.listdir("/")
+        assert isinstance(data, list)
+        assert len(data) > 0
+        for item in data:
+            print self.fi.stats(item)
+            if self.fi.isfile(item):
+                print "file : %s" % item
+                checksum = self.fi.get(item)
+                #print "\tfi-checksum : %s" % checksum
+                #checksum.replace("", "")
+                metadata = self.fs.view(checksum)
+                #print "\tfs-checksum : %s" % metadata["checksum"]
+                assert checksum == metadata["checksum"]
+                print "\tchecking %d blocks" % len(metadata["blockchain"])
+                for block in metadata["blockchain"]:
+                    assert self.bs.exists(block)
+            elif self.fi.isdir(item):
+                print "dir  : %s" % item
+                dirlist = self.fi.listdir(item)
+                print len(dirlist)
+                print dirlist
+            else:
+                print "other: %s" % item
+
+    def no_test_fi_walk(self):
+        blockdigest = {}
+        for item in self.fi.walk("/"):
+            print item
+            for block in self.fs.view(self.fi.get(item))["blockchain"]:
+                if block in blockdigest:
+                    blockdigest[block] += 1
+                else:
+                    blockdigest[block] = 1
+        print "number of blocks stored : %s" % len(blockdigest.keys())
+        print "blocks used more than once : %s" % len([value for digest, count in blockdigest.items() if count > 1])
+
+    def test_up_down(self):
+        fh = tempfile.NamedTemporaryFile("wb", delete=False)
+        name = fh.name
+        basename = os.path.basename(name)
+        testdata = "0123456789" * 1000000
+        fh.write(testdata)
+        fh.close()
+        print "wrote %d bytes to %s" % (len(testdata), name)
+        metadata = self.fs.put(open(name, "rb"))
+        self.fi.put(basename, metadata["checksum"])
+        # self.fi.write(open(name, "rb"), basename)
+        # get it back
+        checksum = self.fi.get(basename)
+        fh = tempfile.NamedTemporaryFile("wb", delete=False)
+        name_2 = fh.name
+        for chunk in self.fs.get(checksum):
+            fh.write(chunk)
+        fh.close()
+        # compare
+        assert open(name).read() == open(name_2).read()
+        os.unlink(name)
+        os.unlink(name_2)
+
+    def test_up(self):
+        fh = tempfile.NamedTemporaryFile("wb", delete=False)
+        name = fh.name
+        basename = os.path.basename(name)
+        testdata = "0123456789" * 1000000
+        fh.write(testdata)
+        fh.close()
+        print "wrote %d bytes to %s" % (len(testdata), name)
+        metadata = self.fs.put(open(name, "rb"))
+        self.fi.put(basename, metadata["checksum"])
+        # copy
+        copy_name = "%s_1" % basename
+        self.fi.copy(basename, copy_name)
+        assert self.fi.get(copy_name) == self.fi.get(basename)
+        # delete copy
+        self.fi.delete(copy_name)
+        try:
+            self.fi.get(copy_name)
+        except HTTP404:
+            pass
+        # move
+        self.fi.move(basename, copy_name)
+        try:
+            self.fi.get(basename)
+            raise AssertionError("This should except")
+        except HTTP404:
+            pass
+        self.fi.delete(copy_name)
+        assert self.fi.isfile(basename) is False
+        assert self.fi.isfile(copy_name) is False
+        # there should be nothing left in fileindex
+        os.unlink(name)
+
+
+if __name__ == "__main__":
+    unittest.main()
+    sys.exit(0)
     bs = BlockStorageClient("http://srvlxtest1.tilak.cc/blockstorage")
     fs = FileStorageClient("http://srvlxtest1.tilak.cc/filestorage", bs, BLOCKSIZE)
     fi = FileIndexClient("http://srvlxtest1.tilak.cc/fileindex")
