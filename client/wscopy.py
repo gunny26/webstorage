@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import sys
+import os
 import time
 import logging
 logging.basicConfig(level=logging.DEBUG)
@@ -10,11 +11,14 @@ from WebStorageClient import FileIndexClient as FileIndexClient
 
 if __name__ == "__main__":
     BLOCKSIZE = 1024 * 1024
-    bs = BlockStorageClient(None)
-    fs = FileStorageClient(None, bs, BLOCKSIZE)
-    fi = FileIndexClient(None)
+    bs = BlockStorageClient()
+    fs = FileStorageClient(bs)
+    fi = FileIndexClient(fs)
     sourcename = sys.argv[1]
-    targetname = sys.argv[2]
+    try:
+        targetname = sys.argv[2]
+    except IndexError:
+        targetname = os.path.basename(sys.argv[1])
     if fi.isfile(targetname) is True:
         print "file %s already exists" % sys.argv[1]
         sys.exit(1)
