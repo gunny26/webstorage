@@ -8,7 +8,7 @@ import hashlib
 import time
 import tempfile
 import logging
-logging.basicConfig(level=logging.DEBUG)
+#logging.basicConfig(level=logging.DEBUG)
 
 
 CONFIG={}
@@ -22,6 +22,8 @@ class HTTP404(Exception):
 class WebAppClient(object):
 
     def _call_url(self, method="GET", data=None, params=()):
+        logging.debug("called %s with params %s", method, str(params))
+        logging.debug("calling url: %s", self.url)
         url = "/".join((self.url, "/".join(params)))
         #logging.info("calling %s %s", method, url)
         try:
@@ -121,7 +123,10 @@ class FileStorageClient(WebAppClient):
                 metadata["blockchain"].append(checksum)
             else:
                 metadata["blockchain"].append(md5.hexdigest())
+        logging.debug("uploaded all blocks")
         metadata["checksum"] = filehash.hexdigest()
+        logging.debug("checksum of file: %s", metadata["checksum"])
+        logging.debug("storing metadata in FileStorage")
         self._call_url("PUT", data=json.dumps(metadata), params=(metadata["checksum"], ))
         return metadata
             

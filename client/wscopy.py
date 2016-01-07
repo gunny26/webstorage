@@ -11,9 +11,9 @@ from WebStorageClient import FileIndexClient as FileIndexClient
 
 if __name__ == "__main__":
     BLOCKSIZE = 1024 * 1024
-    bs = BlockStorageClient(None)
-    fs = FileStorageClient(None, bs, BLOCKSIZE)
-    fi = FileIndexClient(None)
+    bs = BlockStorageClient()
+    fs = FileStorageClient(bs)
+    fi = FileIndexClient(fs)
     sourcename = sys.argv[1]
     try:
         targetname = sys.argv[2]
