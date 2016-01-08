@@ -29,10 +29,38 @@ class BlockStorage(object):
     def __get_filename(self, checksum):
         return os.path.join(STORAGE_DIR, "%s.bin" % checksum)
 
-    def GET(self, md5):
+    def GET(self, args):
+        params = args.split("/")
+        method = None
+        method_args = None
+        if len(params) == 1:
+            method = params[0]
+            method_args = ()
+        else:
+            method = params[0]
+            method_args = params[1:]
+        logging.info("calling method %s", method)
+        data = web.data()
+        if method == "get":
+            return self.get(method_args, data)
+        elif method == "exists":
+            return self.exists(method_args, data)
+        elif method == "stats":
+            return self.stats(method_args, data)
+        elif method == "put":
+            return self.put(method_args, data)
+        elif method == "ls":
+            return self.ls(method_args, data)
+        elif method == "delete":
+            return self.delete(method_args, data)
+        else:
+            return "unknown method %s called" % method
+
+    def get(self, args, data):
         """
-	    get block stored in blockstorage directory with hash
+	get block stored in blockstorage directory with hash
         """
+        md5 = args[0]
         if os.path.isfile(self.__get_filename(md5)):
             web.header('Content-Type', 'application/octet-stream')
             return open(self.__get_filename(md5), "rb").read()
@@ -40,16 +68,23 @@ class BlockStorage(object):
             logging.error("File %s does not exist", self.__get_filename(md5))
             web.notfound()
 
-    def EXISTS(self, md5):
+    def ls(self, args, data):
+        """
+        returns list of existing block checksums
+        """
+        return json.dumps([filename[:-4] for filename in os.listdir(STORAGE_DIR)])
+
+    def exists(self, args, data):
         """
         check if block with digest exists
         """
+        md5 = args[0]
         if os.path.exists(self.__get_filename(md5)):
             web.ctx.status = '200 exists'
         else:
             web.ctx.status = '201 does not exists'
 
-    def POST(self, args):
+    def put(self, args, data):
         """
         put data into storage
         """
@@ -71,14 +106,14 @@ class BlockStorage(object):
                 return json.dumps(digest.hexdigest())
         else:
             return "Hello World"
-    PUT = POST
 
-    def DELETE(self, md5):
+    def delete(self, args, data):
         """
         delete block with md5checksum given
 
         the block should only be deleted if not used anymore in any FileStorage
         """
+        md5 = args[0]
         if os.path.exists(self.__get_filename(md5)):
             os.unlink(self.__get_filename(md5))
             web.ctx.status = '201 block deleted'
