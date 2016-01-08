@@ -7,6 +7,7 @@ FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
 logging.basicConfig(level=logging.DEBUG, format=FORMAT)
 import hashlib
 import json
+import base64
 
 urls = ("/(.*)", "FileIndex",
         )
@@ -28,7 +29,14 @@ class FileIndex(object):
             os.mkdir(STORAGE_DIR)
 
     def __get_filename(self, args):
-        return os.path.join(STORAGE_DIR, args)
+        decoded = base64.b64decode(args[0])
+        subname = decoded
+        if decoded.startswith("/"):
+            subname = decoded[1:]
+        logging.debug("joining %s and %s", STORAGE_DIR, subname) 
+        filename = os.path.join(STORAGE_DIR, subname)
+        logging.debug("__getfilename returns %s", filename)
+        return filename
 
     def GET(self, args):
         params = args.split("/")
@@ -66,7 +74,7 @@ class FileIndex(object):
         if arguments end with / a directory listing will be served,
         otherwise the content of the specific file will be returned
         """
-        filename = self.__get_filename("/".join(args))
+        filename = self.__get_filename(args)
         if os.path.isfile(filename):
             web.header('Content-Type', 'application/octet-stream')
             return open(filename, "rb").read()
@@ -83,7 +91,7 @@ class FileIndex(object):
         if arguments end with / a directory listing will be served,
         otherwise the content of the specific file will be returned
         """
-        filename = self.__get_filename("/".join(args))
+        filename = self.__get_filename(args)
         if os.path.isdir(filename):
             return json.dumps(os.listdir(filename))
         else:
@@ -94,7 +102,7 @@ class FileIndex(object):
         """
         check if block with digest exists
         """
-        filename = self.__get_filename("/".join(args))
+        filename = self.__get_filename(args)
         if os.path.isfile(filename):
             logging.info("found file %s", filename)
             web.ctx.status = '200 file exists'
@@ -108,7 +116,7 @@ class FileIndex(object):
         """
         return file stats of stored file
         """
-        filename = self.__get_filename("/".join(args))
+        filename = self.__get_filename(args)
         stat = os.stat(filename)
         ret_data = {
             "st_atime" : stat.st_atime,
@@ -126,7 +134,7 @@ class FileIndex(object):
 
         if no checksum is given, a directory will be created
         """
-        filename = self.__get_filename("/".join(args))
+        filename = self.__get_filename(args)
         assert len(data) > 0
         checksum = web.data()
         if not os.path.isfile(filename):
@@ -150,7 +158,7 @@ class FileIndex(object):
 
         if no checksum is given, a directory will be created
         """
-        filename = self.__get_filename("/".join(args))
+        filename = self.__get_filename(args)
         logging.info("creating directory %s", filename)
         os.mkdir(filename)
         web.ctx.status = '203 directory created'
@@ -161,7 +169,7 @@ class FileIndex(object):
 
         the block should only be deleted if not used anymore in any FileStorage
         """
-        filename = self.__get_filename("/".join(args))
+        filename = self.__get_filename(args)
         if os.path.isfile(filename):
             os.unlink(filename)
             web.ctx.status = '201 metadata deleted'
