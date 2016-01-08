@@ -7,6 +7,7 @@ import urllib2
 import hashlib
 import time
 import tempfile
+import base64
 import logging
 #logging.basicConfig(level=logging.DEBUG)
 
@@ -27,7 +28,7 @@ class WebAppClient(object):
         url = "/".join((self.url, "/".join(params)))
         #logging.info("calling %s %s", method, url)
         try:
-            req = urllib2.Request(url, 
+            req = urllib2.Request(url,
                 data,
                 {'Content-Type': 'application/octet-stream'})
             req.get_method = lambda: method
@@ -43,9 +44,13 @@ class WebAppClient(object):
             logging.error("error calling %s %s", method, url)
 
     def urlcall(self, method, urlparams, data=None):
-        assert isinstance(urlparams, list) or isinstance(urlparams, tuple)
+        params = u""
+        if not (isinstance(urlparams, list) or isinstance(urlparams, tuple)):
+            params = (method.lower(), urlparams)
+        else:
+            params = [method.lower(), ] + list(urlparams)
         assert isinstance(method, basestring)
-        return self._call_url("GET", data=data, params=[method.lower(), ] + list(urlparams))
+        return self._call_url("GET", data=data, params=params)
 
 
 class BlockStorageClient(WebAppClient):
@@ -60,7 +65,7 @@ class BlockStorageClient(WebAppClient):
     def put(self, data):
         res = self.urlcall("put", urlparams=(), data=data)
         return json.loads(res.read()), res.code
-            
+
     def get(self, hexdigest):
         res = self.urlcall("get", urlparams=(hexdigest, ), data=None)
         return res.read()
@@ -173,17 +178,12 @@ class FileIndexClient(WebAppClient):
             self.url = url
         self.fs = fs
 
-    def urlcall(self, method, urlparams, data=None):
-        assert isinstance(urlparams, list)
-        assert isinstance(method, basestring)
-        return self._call_url("GET", data=data, params=[method.lower(), ] + urlparams)
-
     def put(self, filepath, checksum):
         """save filename to checksum in FileIndex"""
-        return self.urlcall("put", filepath.split("/"), data=checksum)
-            
+        return self.urlcall("put", base64.b64encode(filepath), data=checksum)
+
     def get(self, filepath):
-        res = self.urlcall("get", filepath.split("/"))
+        res = self.urlcall("get", base64.b64encode(filepath))
         checksum = res.read()
         # TODO: remove this workaround
         if checksum.startswith("\""):
@@ -199,18 +199,18 @@ class FileIndexClient(WebAppClient):
         self.put(filepath, metadata["checksum"])
 
     def listdir(self, filepath):
-        res = self.urlcall("listdir", filepath.split("/"))
+        res = self.urlcall("listdir", base64.b64encode(filepath))
         return json.loads(res.read())
 
     def delete(self, filepath):
-        res = self.urlcall("delete", filepath.split("/"))
+        res = self.urlcall("delete", base64.b64encode(filepath))
         if res.code == 200:
             return True
         return False
 
     def exists(self, filepath):
         try:
-            res = self.urlcall("exists", filepath.split("/"))
+            res = self.urlcall("exists", base64.b64encode(filepath))
             if res.code == 200:
                 return True
             return False
@@ -218,12 +218,12 @@ class FileIndexClient(WebAppClient):
             return False
 
     def stats(self, filepath):
-        res = self.urlcall("stats", filepath.split("/"))
+        res = self.urlcall("stats", base64.b64encode(filepath))
         return json.loads(res.read())
 
     def isfile(self, filepath):
         try:
-            res = self.urlcall("exists", filepath.split("/"))
+            res = self.urlcall("exists", base64.b64encode(filepath))
             if res.code == 200:
                 return True
             return False
@@ -232,7 +232,7 @@ class FileIndexClient(WebAppClient):
 
     def isdir(self, filepath):
         try:
-            res = self.urlcall("exists", filepath.split("/"))
+            res = self.urlcall("exists", base64.b64encode(filepath))
             if res.code == 201:
                 return True
             return False
@@ -251,7 +251,7 @@ class FileIndexClient(WebAppClient):
 
     def mkdir(self, filepath):
         if not self.exists(filepath):
-            res = self.urlcall("mkdir", filepath.split("/"))
+            res = self.urlcall("mkdir", base64.b64encode(filepath))
         else:
             logging.error("file or directory %s exists")
 
