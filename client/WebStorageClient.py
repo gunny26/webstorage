@@ -42,6 +42,11 @@ class WebAppClient(object):
             logging.exception(exc)
             logging.error("error calling %s %s", method, url)
 
+    def urlcall(self, method, urlparams, data=None):
+        assert isinstance(urlparams, list) or isinstance(urlparams, tuple)
+        assert isinstance(method, basestring)
+        return self._call_url("GET", data=data, params=[method.lower(), ] + list(urlparams))
+
 
 class BlockStorageClient(WebAppClient):
     """store chunks of data into blockstorage"""
@@ -53,22 +58,26 @@ class BlockStorageClient(WebAppClient):
             self.url = url
 
     def put(self, data):
-        res = self._call_url("PUT", data=data)
+        res = self.urlcall("put", urlparams=(), data=data)
         return json.loads(res.read()), res.code
             
     def get(self, hexdigest):
-        res = self._call_url("GET", params=(hexdigest,))
+        res = self.urlcall("get", urlparams=(hexdigest, ), data=None)
         return res.read()
 
     def delete(self, hexdigest):
-        res = self._call_url("DELETE", params=(hexdigest,))
+        res = self.urlcall("delete", urlparams=(hexdigest, ), data=None)
         return res.code
 
     def exists(self, hexdigest):
-        res = self._call_url("EXISTS", params=(hexdigest,))
+        res = self.urlcall("exists", urlparams=(hexdigest, ), data=None)
         if res.code == 200:
             return True
         return False
+
+    def ls(self):
+        res = self.urlcall("ls", urlparams=(), data=None)
+        return json.loads(res.read())
 
 
 class FileStorageClient(WebAppClient):
@@ -100,7 +109,7 @@ class FileStorageClient(WebAppClient):
             checksum, status = self.bs.put(data)
             metadata["blockchain"].append(checksum)
         metadata["checksum"] = filehash.hexdigest()
-        self._call_url("PUT", data=json.dumps(metadata), params=(metadata["checksum"], ))
+        self.urlcall("put", data=json.dumps(metadata), urlparams=(metadata["checksum"], ))
         return metadata
  
     def put_fast(self, fh):
@@ -127,24 +136,28 @@ class FileStorageClient(WebAppClient):
         metadata["checksum"] = filehash.hexdigest()
         logging.debug("checksum of file: %s", metadata["checksum"])
         logging.debug("storing metadata in FileStorage")
-        self._call_url("PUT", data=json.dumps(metadata), params=(metadata["checksum"], ))
+        self.urlcall("put", data=json.dumps(metadata), urlparams=(metadata["checksum"], ))
         return metadata
             
     def read(self, hexdigest):
-        metadata = json.loads(self._call_url("GET", params=(hexdigest,)).read())
+        metadata = json.loads(self.urlcall("get", urlparams=(hexdigest,)).read())
         for block in metadata["blockchain"]:
             yield self.bs.get(block)
 
     def delete(self, hexdigest):
-        res = self._call_url("DELETE", params=(hexdigest,))
+        res = self.urlcall("delete", urlparams=(hexdigest,))
         return res.code
 
     def get(self, hexdigest):
-        res = self._call_url("GET", params=(hexdigest,))
+        res = self.urlcall("get", urlparams=(hexdigest,))
+        return json.loads(res.read())
+
+    def ls(self):
+        res = self.urlcall("ls", urlparams=())
         return json.loads(res.read())
 
     def exists(self, hexdigest):
-        res = self._call_url("EXISTS", params=(hexdigest,))
+        res = self.urlcall("exists", urlparams=(hexdigest,))
         return res.code
 
 
