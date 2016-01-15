@@ -138,9 +138,13 @@ class FileStorageClient(WebAppClient):
             checksum, status = self.bs.put(data)
             metadata["blockchain"].append(checksum)
         metadata["checksum"] = filehash.hexdigest()
-        self.urlcall("put", data=json.dumps(metadata), urlparams=(metadata["checksum"], ))
-        return metadata
- 
+        res = self.urlcall("put", data=json.dumps(metadata), urlparams=(metadata["checksum"], ))
+        if res.status in (200, 201):
+            if res.status == 201:
+                logging.info("file for this checksum already existed")
+            return metadata
+        raise HTTP404("webapplication returned status %s" % res.status)
+
     def put_fast(self, fh):
         """save data of fileobject in Blockstorage"""
         def read_block():
@@ -165,32 +169,48 @@ class FileStorageClient(WebAppClient):
         metadata["checksum"] = filehash.hexdigest()
         logging.debug("checksum of file: %s", metadata["checksum"])
         logging.debug("storing metadata in FileStorage")
-        self.urlcall("put", data=json.dumps(metadata), urlparams=(metadata["checksum"], ))
-        return metadata
+        res = self.urlcall("put", data=json.dumps(metadata), urlparams=(metadata["checksum"], ))
+        if res.status in (200, 201):
+            if res.status == 201:
+                logging.info("file for this checksum already existed")
+            return metadata
+        raise HTTP404("webapplication returned status %s" % res.status)
             
     def read(self, hexdigest):
         res = self.urlcall("get", urlparams=(hexdigest,))
-        metadata = json.loads(res.data)
-        for block in metadata["blockchain"]:
-            yield self.bs.get(block)
+        if res.status == 200:
+            metadata = json.loads(res.data)
+            for block in metadata["blockchain"]:
+                yield self.bs.get(block)
+        else:
+            raise HTTP404("webapplication returned status %s" % res.status)
 
     def delete(self, hexdigest):
         res = self.urlcall("delete", urlparams=(hexdigest,))
-        return res.status
+        if res.status != 200:
+            raise HTTP404("webapplication returned status %s" % res.status)
 
     def get(self, hexdigest):
         res = self.urlcall("get", urlparams=(hexdigest,))
-        return json.loads(res.data)
+        if res.status == 200:
+            return json.loads(res.data)
+        else:
+            raise HTTP404("webapplication returned status %s" % res.status)
 
     def ls(self):
         res = self.urlcall("ls", urlparams=())
-        return json.loads(res.data)
+        if res.status == 200:
+            return json.loads(res.data)
+        else:
+            raise HTTP404("webapplication returned status %s" % res.status)
 
     def exists(self, hexdigest):
         res = self.urlcall("exists", urlparams=(hexdigest,))
         if res.status == 200:
             return True
-        return False
+        if res.status == 404:
+            return False
+        raise HTTP404("webapplication returned status %s" % res.status)
 
 
 class FileIndexClient(WebAppClient):
