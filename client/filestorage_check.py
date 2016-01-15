@@ -17,7 +17,7 @@ if __name__ == "__main__":
     used_blocks = set()
     for checksum in fs.ls():
         assert fs.exists(checksum)
-        print "checking file with checksum %s", checksum
+        logging.info("checking file with checksum %s", checksum)
         metadata = fs.get(checksum)
         for blockchecksum in metadata["blockchain"]:
             if not blockchecksum in existing_blocks:
@@ -28,6 +28,6 @@ if __name__ == "__main__":
         #data = bs.get(checksum)
         #md5.update(data)
         #assert md5.hexdigest() == checksum
-    print "used blocks %d" % len(used_blocks)
+    logging.info("used blocks %d", len(used_blocks))
     unused_blocks = [blockchecksum for blockchecksum in existing_blocks if blockchecksum not in used_blocks]
-    print "unused blocks %d" % len(unused_blocks)
+    logging.info("unused blocks %d", len(unused_blocks))
