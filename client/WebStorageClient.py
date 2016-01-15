@@ -4,6 +4,7 @@ import sys
 import os
 import json
 import urllib2
+import urllib3
 import hashlib
 import time
 import tempfile
@@ -11,6 +12,8 @@ import base64
 import logging
 #logging.basicConfig(level=logging.DEBUG)
 
+
+pool = urllib3.PoolManager()
 
 CONFIG={}
 for line in open("WebStorageClient.ini", "rb"):
@@ -25,14 +28,16 @@ class WebAppClient(object):
     def _call_url(self, method="GET", data=None, params=()):
         logging.debug("called %s with params %s", method, str(params))
         logging.debug("calling url: %s", self.url)
-        url = "/".join((self.url, "/".join(params)))
+        url = u"/".join((self.url, u"/".join(params)))
         #logging.info("calling %s %s", method, url)
         try:
-            req = urllib2.Request(url,
-                data,
-                {'Content-Type': 'application/octet-stream'})
-            req.get_method = lambda: method
-            res = urllib2.urlopen(req)
+            #req = urllib2.Request(url,
+            #    data,
+            #    {'Content-Type': 'application/octet-stream'})
+            #req.get_method = lambda: method
+            #res = urllib2.urlopen(req)
+            headers = {'Content-Type': 'application/octet-stream'}
+            res = pool.urlopen(method, url, headers=headers, body=data)
             return res
         except urllib2.HTTPError as exc:
             if exc.code == 404:
@@ -43,14 +48,25 @@ class WebAppClient(object):
             logging.exception(exc)
             logging.error("error calling %s %s", method, url)
 
-    def urlcall(self, method, urlparams, data=None):
+    def urlcall(self, method, urlparams=None, data=None):
         params = u""
-        if not (isinstance(urlparams, list) or isinstance(urlparams, tuple)):
-            params = (method.lower(), urlparams)
+        if urlparams is not None:
+            if not (isinstance(urlparams, list) or isinstance(urlparams, tuple)):
+                params = (method.lower(), urlparams)
+            else:
+                params = [method.lower(), ] + list(urlparams)
         else:
-            params = [method.lower(), ] + list(urlparams)
+            params = [method.lower(), ]
         assert isinstance(method, basestring)
-        return self._call_url("GET", data=data, params=params)
+        return self._call_url(u"GET", data=data, params=params)
+
+    @staticmethod
+    def uri_encode(text):
+        return base64.urlsafe_b64encode(text.encode("utf-8"))
+
+    @staticmethod
+    def uri_decode(text):
+        return base64.urlsafe_b64decode(text.decode("utf-8"))
 
 
 class BlockStorageClient(WebAppClient):
@@ -64,26 +80,34 @@ class BlockStorageClient(WebAppClient):
 
     def put(self, data):
         res = self.urlcall("put", urlparams=(), data=data)
-        return json.loads(res.read()), res.code
+        if res.status in (200, 201):
+            if res.status == 201:
+                logging.info("block existed, but rewritten")
+            return json.loads(res.data), res.status
+        raise HTTP404("webapplication delivered status %s" % res.status)
 
     def get(self, hexdigest):
-        res = self.urlcall("get", urlparams=(hexdigest, ), data=None)
-        return res.read()
+        res = self.urlcall("get", urlparams=(hexdigest, ))
+        if res.status == 404:
+            raise HTTP404("block with checksum %s does not exist" % hexdigest)
+        return res.data
 
     def delete(self, hexdigest):
-        res = self.urlcall("delete", urlparams=(hexdigest, ), data=None)
-        return res.code
+        res = self.urlcall("delete", urlparams=(hexdigest, ))
+        if res.status == 404:
+            raise HTTP404("block with checksum %s does not exist" % hexdigest)
 
     def exists(self, hexdigest):
-        res = self.urlcall("exists", urlparams=(hexdigest, ), data=None)
-        if res.code == 200:
+        res = self.urlcall("exists", urlparams=(hexdigest, ))
+        if res.status == 200:
             return True
         return False
 
     def ls(self):
         res = self.urlcall("ls", urlparams=(), data=None)
-        return json.loads(res.read())
-
+        if res.status == 200:
+            return json.loads(res.data)
+        raise HTTP404("webapplication delivered status %s" % res.status)
 
 class FileStorageClient(WebAppClient):
     """
@@ -145,25 +169,28 @@ class FileStorageClient(WebAppClient):
         return metadata
             
     def read(self, hexdigest):
-        metadata = json.loads(self.urlcall("get", urlparams=(hexdigest,)).read())
+        res = self.urlcall("get", urlparams=(hexdigest,))
+        metadata = json.loads(res.data)
         for block in metadata["blockchain"]:
             yield self.bs.get(block)
 
     def delete(self, hexdigest):
         res = self.urlcall("delete", urlparams=(hexdigest,))
-        return res.code
+        return res.status
 
     def get(self, hexdigest):
         res = self.urlcall("get", urlparams=(hexdigest,))
-        return json.loads(res.read())
+        return json.loads(res.data)
 
     def ls(self):
         res = self.urlcall("ls", urlparams=())
-        return json.loads(res.read())
+        return json.loads(res.data)
 
     def exists(self, hexdigest):
         res = self.urlcall("exists", urlparams=(hexdigest,))
-        return res.code
+        if res.status == 200:
+            return True
+        return False
 
 
 class FileIndexClient(WebAppClient):
@@ -173,21 +200,42 @@ class FileIndexClient(WebAppClient):
 
     def __init__(self, fs, url=None):
         if url is None:
-            self.url = CONFIG["URL_FILEINDEX"]
+            self.url = CONFIG[u"URL_FILEINDEX"]
         else:
             self.url = url
         self.fs = fs
 
+    def _call_url(self, method, url, headers, data=None, params=None):
+        res = pool.urlopen(method, url, headers=headers, body=data)
+        if res.status == 404:
+            raise HTTP404("HTTP 404 returned")
+        return res
+
+    def get_json(self,method, data):
+        headers = {'Content-Type': 'application/json'}
+        res =  self.get_raw(method, json.dumps(unicode(data).encode("utf-8")), headers)
+        return json.loads(res.data)
+
+    def get_raw(self, method, data, headers={'Content-Type': 'application/json'}):
+        url = u"/".join((self.url, method))
+        res = self._call_url("GET", url, headers=headers, data=data)
+        return res
+
+    # here begins main API
+
     def put(self, filepath, checksum):
         """save filename to checksum in FileIndex"""
-        return self.urlcall("put", base64.b64encode(filepath), data=checksum)
+        data = {"name" : filepath, "checksum" : checksum}
+        res = self.get_raw(u"put", json.dumps(data))
+        return res # todo any reason to do this?
 
     def get(self, filepath):
-        res = self.urlcall("get", base64.b64encode(filepath))
-        checksum = res.read()
+        checksum = self.get_json(u"get", filepath)
         # TODO: remove this workaround
         if checksum.startswith("\""):
             checksum = checksum[1:-1]
+        # length of md5 hexdigest is fixed
+        assert len(checksum) == len("7233cd2eaf78da883a54bc81513f021f")
         return checksum
 
     def read(self, filepath):
@@ -196,48 +244,48 @@ class FileIndexClient(WebAppClient):
 
     def write(self, fh, filepath):
         metadata = self.fs.put(fh)
-        self.put(filepath, metadata["checksum"])
+        self.put(filepath, metadata[u"checksum"])
 
     def listdir(self, filepath):
-        res = self.urlcall("listdir", base64.b64encode(filepath))
-        return json.loads(res.read())
+        data = self.get_json(u"listdir", filepath)
+        return data
 
     def delete(self, filepath):
-        res = self.urlcall("delete", base64.b64encode(filepath))
-        if res.code == 200:
+        res = self.get_raw(u"delete", json.dumps(unicode(filepath).encode("utf-8")))
+        if res.status == 200:
             return True
-        return False
+        raise StandardError("File %s could not be deleted" % filepath)
+
+    def stats(self, filepath):
+        res = self.get_json(u"stats", filepath)
+        return res
 
     def exists(self, filepath):
         try:
-            res = self.urlcall("exists", base64.b64encode(filepath))
-            if res.code == 200:
+            res = self.get_raw(u"exists", json.dumps(unicode(filepath).encode("utf-8")))
+            if res.status == 200:
                 return True
             return False
         except HTTP404:
             return False
-
-    def stats(self, filepath):
-        res = self.urlcall("stats", base64.b64encode(filepath))
-        return json.loads(res.read())
 
     def isfile(self, filepath):
         try:
-            res = self.urlcall("exists", base64.b64encode(filepath))
-            if res.code == 200:
+            res = self.get_raw(u"isfile", json.dumps(unicode(filepath).encode("utf-8")))
+            if res.status == 200:
                 return True
             return False
         except HTTP404:
-            return False
+            return False # mimic os.path.isdir behaviour
 
     def isdir(self, filepath):
         try:
-            res = self.urlcall("exists", base64.b64encode(filepath))
-            if res.code == 201:
+            res = self.get_raw(u"isdir", json.dumps(unicode(filepath).encode("utf-8")))
+            if res.status == 200:
                 return True
             return False
         except HTTP404:
-            return False
+            return False # mimic os.path.isdir behaviour
 
     def walk(self, filepath):
         assert self.isdir(filepath)
@@ -251,7 +299,7 @@ class FileIndexClient(WebAppClient):
 
     def mkdir(self, filepath):
         if not self.exists(filepath):
-            res = self.urlcall("mkdir", base64.b64encode(filepath))
+            res = self.get_raw(u"mkdir", json.dumps(unicode(filepath).encode("utf-8"))) # any reason to do this?
         else:
             logging.error("file or directory %s exists")
 
