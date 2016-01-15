@@ -1,10 +1,11 @@
 #!/usr/bin/python
 
 import web
+import time
 import os
 import logging
 FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
-logging.basicConfig(level=logging.DEBUG, format=FORMAT)
+logging.basicConfig(level=logging.INFO, format=FORMAT)
 import hashlib
 import json
 import base64
@@ -17,7 +18,29 @@ CONFIG = {}
 for line in open("/var/www/webstorage/webapps/fileindex/fileindex.ini", "rb"):
     key, value = line.strip().split("=")
     CONFIG[key] = value
-STORAGE_DIR = CONFIG["STORAGE_DIR"]
+STORAGE_DIR = unicode(CONFIG["STORAGE_DIR"])
+
+
+def calllogger(func):
+     """
+     decorator
+     """
+     def inner(*args, **kwds):
+         starttime = time.time()
+         call_str = "%s(%s, %s)" % (func.__name__, args[1:], kwds)
+         logging.debug("calling %s", call_str)
+         try:
+             ret_val = func(*args, **kwds)
+             logging.debug("duration of call %s : %s", call_str, (time.time() - starttime))
+             return ret_val
+         except StandardError as exc:
+             logging.exception(exc)
+             logging.error("call to %s caused StandardError", call_str)
+             return "call to %s caused StandardError" % call_str
+     # set inner function __name__ and __doc__ to original ones
+     inner.__name__ = func.__name__
+     inner.__doc__ = func.__doc__
+     return inner
 
 
 class FileIndex(object):
@@ -28,15 +51,26 @@ class FileIndex(object):
         if not os.path.exists(STORAGE_DIR):
             os.mkdir(STORAGE_DIR)
 
-    def __get_filename(self, args):
-        decoded = base64.b64decode(args[0])
+    def __b64_get_filename(self, args):
+        logging.info("%s <%s>", args[0], type(args[0]))
+        decoded = base64.b64decode(str(args[0])).decode("utf-8")
         subname = decoded
-        if decoded.startswith("/"):
+        if decoded.startswith(u"/"):
             subname = decoded[1:]
         logging.debug("joining %s and %s", STORAGE_DIR, subname) 
         filename = os.path.join(STORAGE_DIR, subname)
-        logging.debug("__getfilename returns %s", filename)
         return filename
+
+    def __get_filename(self, basename):
+        if basename.startswith(u"/"):
+            basename = basename[1:]
+        filename = os.path.join(STORAGE_DIR, basename)
+        return filename
+
+    @staticmethod
+    def __ret_json(text):
+        web.header('Content-Type', 'application/octet-stream')
+        return json.dumps(text)
 
     def GET(self, args):
         params = args.split("/")
@@ -48,12 +82,15 @@ class FileIndex(object):
         else:
             method = params[0]
             method_args = params[1:]
-        logging.info("calling method %s", method)
         data = web.data()
         if method == "get":
             return self.get(method_args, data)
         elif method == "exists":
             return self.exists(method_args, data)
+        elif method == "isfile":
+            return self.isfile(method_args, data)
+        elif method == "isdir":
+            return self.isdir(method_args, data)
         elif method == "stats":
             return self.stats(method_args, data)
         elif method == "put":
@@ -74,12 +111,9 @@ class FileIndex(object):
         if arguments end with / a directory listing will be served,
         otherwise the content of the specific file will be returned
         """
-        filename = self.__get_filename(args)
+        filename = self.__get_filename(json.loads(data))
         if os.path.isfile(filename):
-            web.header('Content-Type', 'application/octet-stream')
-            return open(filename, "rb").read()
-        elif os.path.isdir(filename):
-            return json.dumps(os.listdir(filename))
+            return self.__ret_json(open(filename, "rb").read())
         else:
             logging.error("File %s does not exist", filename)
             web.notfound()
@@ -91,24 +125,43 @@ class FileIndex(object):
         if arguments end with / a directory listing will be served,
         otherwise the content of the specific file will be returned
         """
-        filename = self.__get_filename(args)
+        filename = unicode(self.__get_filename(json.loads(data)))
         if os.path.isdir(filename):
-            return json.dumps(os.listdir(filename))
+            return self.__ret_json(os.listdir(filename))
         else:
             logging.error("File %s does not exist", filename)
             web.notfound()
 
+    @calllogger
     def exists(self, args, data):
         """
         check if block with digest exists
         """
-        filename = self.__get_filename(args)
+        filename = self.__get_filename(json.loads(data))
+        if os.path.exists(filename):
+            web.ctx.status = '200 file or directory exists'
+        else:
+            web.notfound()
+
+    @calllogger
+    def isfile(self, args, data):
+        """
+        check if block with digest exists
+        """
+        filename = self.__get_filename(json.loads(data))
         if os.path.isfile(filename):
-            logging.info("found file %s", filename)
             web.ctx.status = '200 file exists'
-        elif os.path.isdir(filename):
-            logging.info("found directory %s", filename)
-            web.ctx.status = '201 directory exists'
+        else:
+            web.notfound()
+
+    @calllogger
+    def isdir(self, args, data):
+        """
+        check if block with digest exists
+        """
+        filename = self.__get_filename(json.loads(data.decode("unicode-escape")))
+        if os.path.isdir(filename):
+            web.ctx.status = '200 file exists'
         else:
             web.notfound()
 
@@ -116,14 +169,14 @@ class FileIndex(object):
         """
         return file stats of stored file
         """
-        filename = self.__get_filename(args)
-        stat = os.stat(filename)
+        filename = self.__get_filename(json.loads(data))
+        stat = os.stat(filename.encode("utf-8"))
         ret_data = {
             "st_atime" : stat.st_atime,
             "st_mtime" : stat.st_mtime,
             "st_ctime" : stat.st_ctime,
         }
-        return json.dumps(ret_data)
+        return self.__ret_json(ret_data)
 
     def put(self, args, data):
         """
@@ -134,9 +187,10 @@ class FileIndex(object):
 
         if no checksum is given, a directory will be created
         """
-        filename = self.__get_filename(args)
+        mydata = json.loads(data)
+        filename = self.__get_filename(mydata["name"])
         assert len(data) > 0
-        checksum = web.data()
+        checksum = mydata["checksum"]
         if not os.path.isfile(filename):
             try:
                 open(filename, "wb").write(checksum)
@@ -158,10 +212,12 @@ class FileIndex(object):
 
         if no checksum is given, a directory will be created
         """
-        filename = self.__get_filename(args)
+        filename = self.__get_filename(json.loads(data))
         logging.info("creating directory %s", filename)
-        os.mkdir(filename)
-        web.ctx.status = '203 directory created'
+        if not os.path.exists(filename):
+            os.mkdir(filename)
+        else:
+            web.ctx.status = "405 file or direcory already exists"
 
     def delete(self, args, data):
         """
@@ -169,10 +225,9 @@ class FileIndex(object):
 
         the block should only be deleted if not used anymore in any FileStorage
         """
-        filename = self.__get_filename(args)
+        filename = self.__get_filename(json.loads(data))
         if os.path.isfile(filename):
             os.unlink(filename)
-            web.ctx.status = '201 metadata deleted'
         else:
             web.notfound()
 
