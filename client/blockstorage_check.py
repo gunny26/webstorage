@@ -5,6 +5,8 @@ import time
 import hashlib
 import logging
 logging.basicConfig(level=logging.DEBUG)
+logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import FileStorageClient as FileStorageClient
 from WebStorageClient import FileIndexClient as FileIndexClient
