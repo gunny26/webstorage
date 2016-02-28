@@ -179,9 +179,10 @@ class FileStorageClient(WebAppClient):
                 logging.info("file for this checksum already existed")
             return metadata
         raise HTTP404("webapplication returned status %s" % res.status_code)
-            
+
     def read(self, hexdigest):
-        res = requests.get(self.get_url("read", hexdigest))
+        """return data as generator"""
+        res = requests.get(self.get_url("get", hexdigest))
         if res.status_code == 200:
             metadata = res.json()
             for block in metadata["blockchain"]:
@@ -195,6 +196,7 @@ class FileStorageClient(WebAppClient):
             raise HTTP404("webapplication returned status %s" % res.status_code)
 
     def get(self, hexdigest):
+        """returns only hexdigest of FileStorage Element to get the data"""
         res = requests.get(self.get_url("get", hexdigest))
         if res.status_code == 200:
             return res.json()
@@ -260,6 +262,11 @@ class FileIndexClient(WebAppClient):
     def write(self, fh, filepath):
         metadata = self.fs.put(fh)
         self.put(filepath, metadata[u"checksum"])
+
+    def upload(self, filename, path="/"):
+        fh = open(filename, "rb")
+        self.write(fh, os.path.join(path, os.path.basename(filename)))
+        fh.close()
 
     def listdir(self, filepath):
         headers = {'Content-Type' : 'text/html; charset=utf-8'}
