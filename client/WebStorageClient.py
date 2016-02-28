@@ -3,8 +3,9 @@
 import sys
 import os
 import json
-import urllib2
-import urllib3
+#import urllib2
+#import urllib3
+import requests
 import hashlib
 import time
 import tempfile
@@ -13,7 +14,7 @@ import logging
 #logging.basicConfig(level=logging.DEBUG)
 
 
-pool = urllib3.PoolManager()
+#pool = urllib3.PoolManager()
 
 CONFIG={}
 for line in open("WebStorageClient.ini", "rb"):
@@ -25,48 +26,51 @@ class HTTP404(Exception):
 
 class WebAppClient(object):
 
-    def _call_url(self, method="GET", data=None, params=()):
-        logging.debug("called %s with params %s", method, str(params))
-        logging.debug("calling url: %s", self.url)
-        url = u"/".join((self.url, u"/".join(params)))
-        #logging.info("calling %s %s", method, url)
-        try:
-            #req = urllib2.Request(url,
-            #    data,
-            #    {'Content-Type': 'application/octet-stream'})
-            #req.get_method = lambda: method
-            #res = urllib2.urlopen(req)
-            headers = {'Content-Type': 'application/octet-stream'}
-            res = pool.urlopen(method, url, headers=headers, body=data)
-            return res
-        except urllib2.HTTPError as exc:
-            if exc.code == 404:
-                raise HTTP404()
-            logging.exception(exc)
-            logging.error("error calling %s %s", method, url)
-        except urllib2.URLError as exc:
-            logging.exception(exc)
-            logging.error("error calling %s %s", method, url)
+#    def _call_url(self, method="GET", data=None, params=()):
+#        logging.debug("called %s with params %s", method, str(params))
+#        logging.debug("calling url: %s", self.url)
+#        url = u"/".join((self.url, u"/".join(params)))
+#        #logging.info("calling %s %s", method, url)
+#        try:
+#            #req = urllib2.Request(url,
+#            #    data,
+#            #    {'Content-Type': 'application/octet-stream'})
+#            #req.get_method = lambda: method
+#            #res = urllib2.urlopen(req)
+#            headers = {'Content-Type': 'application/octet-stream'}
+#            res = pool.urlopen(method, url, headers=headers, body=data)
+#            return res
+#        except urllib2.HTTPError as exc:
+#            if exc.code == 404:
+#                raise HTTP404()
+#            logging.exception(exc)
+#            logging.error("error calling %s %s", method, url)
+#        except urllib2.URLError as exc:
+#            logging.exception(exc)
+#            logging.error("error calling %s %s", method, url)
+#
+#    def urlcall(self, method, urlparams=None, data=None):
+#        params = u""
+#        if urlparams is not None:
+#            if not (isinstance(urlparams, list) or isinstance(urlparams, tuple)):
+#                params = (method.lower(), urlparams)
+#            else:
+#                params = [method.lower(), ] + list(urlparams)
+#        else:
+#            params = [method.lower(), ]
+#        assert isinstance(method, basestring)
+#        return self._call_url(u"GET", data=data, params=params)
+#
+#    @staticmethod
+#    def uri_encode(text):
+#        return base64.urlsafe_b64encode(text.encode("utf-8"))
+#
+#    @staticmethod
+#    def uri_decode(text):
+#        return base64.urlsafe_b64decode(text.decode("utf-8"))
 
-    def urlcall(self, method, urlparams=None, data=None):
-        params = u""
-        if urlparams is not None:
-            if not (isinstance(urlparams, list) or isinstance(urlparams, tuple)):
-                params = (method.lower(), urlparams)
-            else:
-                params = [method.lower(), ] + list(urlparams)
-        else:
-            params = [method.lower(), ]
-        assert isinstance(method, basestring)
-        return self._call_url(u"GET", data=data, params=params)
-
-    @staticmethod
-    def uri_encode(text):
-        return base64.urlsafe_b64encode(text.encode("utf-8"))
-
-    @staticmethod
-    def uri_decode(text):
-        return base64.urlsafe_b64decode(text.decode("utf-8"))
+    def get_url(self, *args):
+        return u"/".join((self.url, "/".join(args)))
 
 
 class BlockStorageClient(WebAppClient):
@@ -79,35 +83,35 @@ class BlockStorageClient(WebAppClient):
             self.url = url
 
     def put(self, data):
-        res = self.urlcall("put", urlparams=(), data=data)
-        if res.status in (200, 201):
-            if res.status == 201:
+        res = requests.get(self.get_url("put"), data=data)
+        if res.status_code in (200, 201):
+            if res.status_code == 201:
                 logging.info("block existed, but rewritten")
-            return json.loads(res.data), res.status
-        raise HTTP404("webapplication delivered status %s" % res.status)
+            return res.text, res.status_code
+        raise HTTP404("webapplication delivered status %s" % res.status_code)
 
     def get(self, hexdigest):
-        res = self.urlcall("get", urlparams=(hexdigest, ))
-        if res.status == 404:
+        res = requests.get(self.get_url("get", hexdigest))
+        if res.status_code == 404:
             raise HTTP404("block with checksum %s does not exist" % hexdigest)
         return res.data
 
     def delete(self, hexdigest):
-        res = self.urlcall("delete", urlparams=(hexdigest, ))
-        if res.status == 404:
+        res = requests.get(self.get_url("delete", hexdigest))
+        if res.status_code == 404:
             raise HTTP404("block with checksum %s does not exist" % hexdigest)
 
     def exists(self, hexdigest):
-        res = self.urlcall("exists", urlparams=(hexdigest, ))
-        if res.status == 200:
+        res = requests.get(self.get_url("exists", hexdigest))
+        if res.status_code == 200:
             return True
         return False
 
     def ls(self):
-        res = self.urlcall("ls", urlparams=(), data=None)
-        if res.status == 200:
-            return json.loads(res.data)
-        raise HTTP404("webapplication delivered status %s" % res.status)
+        res = requests.get(self.get_url("ls"))
+        if res.status_code == 200:
+            return res.json()
+        raise HTTP404("webapplication delivered status %s" % res.status_code)
 
 class FileStorageClient(WebAppClient):
     """
@@ -138,12 +142,12 @@ class FileStorageClient(WebAppClient):
             checksum, status = self.bs.put(data)
             metadata["blockchain"].append(checksum)
         metadata["checksum"] = filehash.hexdigest()
-        res = self.urlcall("put", data=json.dumps(metadata), urlparams=(metadata["checksum"], ))
-        if res.status in (200, 201):
-            if res.status == 201:
+        res = requests.get(self.get_url("put", metadata["checksum"]), data=json.dumps(metadata))
+        if res.status_code in (200, 201):
+            if res.status_code == 201:
                 logging.info("file for this checksum already existed")
             return metadata
-        raise HTTP404("webapplication returned status %s" % res.status)
+        raise HTTP404("webapplication returned status %s" % res.status_code)
 
     def put_fast(self, fh):
         """save data of fileobject in Blockstorage"""
@@ -169,48 +173,48 @@ class FileStorageClient(WebAppClient):
         metadata["checksum"] = filehash.hexdigest()
         logging.debug("checksum of file: %s", metadata["checksum"])
         logging.debug("storing metadata in FileStorage")
-        res = self.urlcall("put", data=json.dumps(metadata), urlparams=(metadata["checksum"], ))
-        if res.status in (200, 201):
-            if res.status == 201:
+        res = requests.get(self.get_url("put", metadata["checksum"]), data=json.dumps(metadata))
+        if res.status_code in (200, 201):
+            if res.status_code == 201:
                 logging.info("file for this checksum already existed")
             return metadata
-        raise HTTP404("webapplication returned status %s" % res.status)
+        raise HTTP404("webapplication returned status %s" % res.status_code)
             
     def read(self, hexdigest):
-        res = self.urlcall("get", urlparams=(hexdigest,))
-        if res.status == 200:
-            metadata = json.loads(res.data)
+        res = requests.get(self.get_url("read", hexdigest))
+        if res.status_code == 200:
+            metadata = res.json()
             for block in metadata["blockchain"]:
                 yield self.bs.get(block)
         else:
-            raise HTTP404("webapplication returned status %s" % res.status)
+            raise HTTP404("webapplication returned status %s" % res.status_code)
 
     def delete(self, hexdigest):
-        res = self.urlcall("delete", urlparams=(hexdigest,))
-        if res.status != 200:
-            raise HTTP404("webapplication returned status %s" % res.status)
+        res = requests.get(self.get_url("delete", hexdigest))
+        if res.status_code != 200:
+            raise HTTP404("webapplication returned status %s" % res.status_code)
 
     def get(self, hexdigest):
-        res = self.urlcall("get", urlparams=(hexdigest,))
-        if res.status == 200:
-            return json.loads(res.data)
+        res = requests.get(self.get_url("get", hexdigest))
+        if res.status_code == 200:
+            return res.json()
         else:
-            raise HTTP404("webapplication returned status %s" % res.status)
+            raise HTTP404("webapplication returned status %s" % res.status_code)
 
     def ls(self):
-        res = self.urlcall("ls", urlparams=())
-        if res.status == 200:
-            return json.loads(res.data)
+        res = requests.get(self.get_url("ls"))
+        if res.status_code == 200:
+            return res.json()
         else:
-            raise HTTP404("webapplication returned status %s" % res.status)
+            raise HTTP404("webapplication returned status %s" % res.status_code)
 
     def exists(self, hexdigest):
-        res = self.urlcall("exists", urlparams=(hexdigest,))
-        if res.status == 200:
+        res = requests.get(self.get_url("exists", hexdigest))
+        if res.status_code == 200:
             return True
-        if res.status == 404:
+        if res.status_code == 404:
             return False
-        raise HTTP404("webapplication returned status %s" % res.status)
+        raise HTTP404("webapplication returned status %s" % res.status_code)
 
 
 class FileIndexClient(WebAppClient):
@@ -225,32 +229,23 @@ class FileIndexClient(WebAppClient):
             self.url = url
         self.fs = fs
 
-    def _call_url(self, method, url, headers, data=None, params=None):
-        res = pool.urlopen(method, url, headers=headers, body=data)
-        if res.status == 404:
-            raise HTTP404("HTTP 404 returned")
-        return res
-
-    def get_json(self,method, data):
-        headers = {'Content-Type': 'application/json'}
-        res =  self.get_raw(method, json.dumps(unicode(data).encode("utf-8")), headers)
-        return json.loads(res.data)
-
-    def get_raw(self, method, data, headers={'Content-Type': 'application/json'}):
-        url = u"/".join((self.url, method))
-        res = self._call_url("GET", url, headers=headers, data=data)
-        return res
 
     # here begins main API
 
     def put(self, filepath, checksum):
         """save filename to checksum in FileIndex"""
-        data = {"name" : filepath, "checksum" : checksum}
-        res = self.get_raw(u"put", json.dumps(data))
-        return res # todo any reason to do this?
+        data = {"name" : filepath.encode("utf-8"), "checksum" : checksum}
+        res = requests.get(self.get_url("put"), data=json.dumps(data))
+        if res.status_code == 201:
+            logging.info("File put in store, but already existed")
+        elif re.status_code != 200:
+            raise HTTP404("got status %d on put" % res.status_code)
 
     def get(self, filepath):
-        checksum = self.get_json(u"get", filepath)
+        res = requests.get(self.get_url("get"), data=filepath.encode("utf-8"))
+        if res.status_code == 404:
+            raise HTTP404("File not found")
+        checksum = res.json()
         # TODO: remove this workaround
         if checksum.startswith("\""):
             checksum = checksum[1:-1]
@@ -267,59 +262,53 @@ class FileIndexClient(WebAppClient):
         self.put(filepath, metadata[u"checksum"])
 
     def listdir(self, filepath):
-        data = self.get_json(u"listdir", filepath)
-        return data
+        headers = {'Content-Type' : 'text/html; charset=utf-8'}
+        res = requests.get(self.get_url("listdir"), data=filepath.encode("utf-8"), headers=headers)
+        logging.error(res.encoding)
+        # list of utf-8 encoded strings, must decode
+        return [item.force_encoding("iso8859-1").encode("utf-8") for item in res.json()]
 
     def delete(self, filepath):
-        res = self.get_raw(u"delete", json.dumps(unicode(filepath).encode("utf-8")))
-        if res.status == 200:
-            return True
-        raise StandardError("File %s could not be deleted" % filepath)
+        res = requests.get(self.get_url("delete"), data=filepath.encode("utf-8"))
+        if res.status_code != 200:
+            raise HTTP404("File %s could not be deleted" % filepath.encode("utf-8"))
 
     def stats(self, filepath):
-        res = self.get_json(u"stats", filepath)
-        return res
+        res = requests.get(self.get_url("stats"), data=filepath.encode("utf-8"))
+        return res.text
 
     def exists(self, filepath):
-        try:
-            res = self.get_raw(u"exists", json.dumps(unicode(filepath).encode("utf-8")))
-            if res.status == 200:
-                return True
-            return False
-        except HTTP404:
-            return False
+        res = requests.get(self.get_url("exists"), data=filepath.encode("utf-8"))
+        if res.status_code == 200:
+            return True
+        return False
 
     def isfile(self, filepath):
-        try:
-            res = self.get_raw(u"isfile", json.dumps(unicode(filepath).encode("utf-8")))
-            if res.status == 200:
-                return True
-            return False
-        except HTTP404:
-            return False # mimic os.path.isdir behaviour
+        res = requests.get(self.get_url("isfile"), data=filepath.encode("utf-8"))
+        if res.status_code == 200:
+            return True
+        return False
 
     def isdir(self, filepath):
-        try:
-            res = self.get_raw(u"isdir", json.dumps(unicode(filepath).encode("utf-8")))
-            if res.status == 200:
-                return True
-            return False
-        except HTTP404:
-            return False # mimic os.path.isdir behaviour
+        headers = {'Content-Type' : 'text/html; charset=utf-8'}
+        res = requests.get(self.get_url("isdir"), data=filepath.encode("utf-8"), headers=headers)
+        if res.status_code == 200:
+            return True
+        return False
 
-    def walk(self, filepath):
-        assert self.isdir(filepath)
-        result = []
-        for item in self.listdir(filepath):
-            if self.isfile(item):
-                result.append(item)
-            else:
-                result += self.walk(item)
-        return result
+#    def walk(self, filepath):
+#        assert self.isdir(filepath)
+#        result = []
+#        for item in self.listdir(filepath):
+#            if self.isfile(item):
+#                result.append(item)
+#            else:
+#                result += self.walk(item)
+#        return result
 
     def mkdir(self, filepath):
         if not self.exists(filepath):
-            res = self.get_raw(u"mkdir", json.dumps(unicode(filepath).encode("utf-8"))) # any reason to do this?
+            res = requests.get(self.get_url("mkdir"), data=filepath.encode("utf-8"))
         else:
             logging.error("file or directory %s exists")
 

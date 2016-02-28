@@ -5,6 +5,8 @@ import time
 import hashlib
 import logging
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import FileStorageClient as FileStorageClient
 from WebStorageClient import FileIndexClient as FileIndexClient
@@ -18,6 +20,9 @@ def walk(fi, directory):
         directory = directory[:-1]
     try:
         for filename in fi.listdir(directory):
+            filename = unicode(filename)
+            print filename
+            print ":".join(["%x" % ord(char) for char in filename])
             abspath = directory + "/" + filename
             if directory == u"/":
                 abspath = u"/" + filename
@@ -41,7 +46,7 @@ if __name__ == "__main__":
     used_blocks = set()
     filechecksum_counter = {}
     used_checksums = set()
-    for filename in walk(fi, u"/"):
+    for filename in walk(fi, u"/musik/ultrastar/songs/L-M"):
         checksum = fi.get(filename)
         # something like 4da1e9a09036f981f56ed1c5b3d00e8b
         try:
