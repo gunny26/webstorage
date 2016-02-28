@@ -62,6 +62,8 @@ class FileIndex(object):
         return filename
 
     def __get_filename(self, basename):
+        logging.error(":".join(["%x" % ord(char) for char in basename]))
+        logging.error(basename)
         if basename.startswith(u"/"):
             basename = basename[1:]
         filename = os.path.join(STORAGE_DIR, basename)
@@ -69,10 +71,12 @@ class FileIndex(object):
 
     @staticmethod
     def __ret_json(text):
-        web.header('Content-Type', 'application/octet-stream')
-        return json.dumps(text)
+        #web.header('Content-Type', 'application/octet-stream')
+        web.header('Content-Type','application/json; charset=utf-8', unique=True)  
+        return json.dumps(text, encoding="utf-8")
 
     def GET(self, args):
+        web.header('Content-Type','application/json; charset=utf-8', unique=True)  
         params = args.split("/")
         method = None
         method_args = None
@@ -82,6 +86,7 @@ class FileIndex(object):
         else:
             method = params[0]
             method_args = params[1:]
+        # usually this if json formatted
         data = web.data()
         if method == "get":
             return self.get(method_args, data)
@@ -111,7 +116,7 @@ class FileIndex(object):
         if arguments end with / a directory listing will be served,
         otherwise the content of the specific file will be returned
         """
-        filename = self.__get_filename(json.loads(data))
+        filename = self.__get_filename(data.decode("utf-8"))
         if os.path.isfile(filename):
             return self.__ret_json(open(filename, "rb").read())
         else:
@@ -125,7 +130,7 @@ class FileIndex(object):
         if arguments end with / a directory listing will be served,
         otherwise the content of the specific file will be returned
         """
-        filename = unicode(self.__get_filename(json.loads(data)))
+        filename = self.__get_filename(data.decode("utf-8"))
         if os.path.isdir(filename):
             return self.__ret_json(os.listdir(filename))
         else:
@@ -137,7 +142,7 @@ class FileIndex(object):
         """
         check if block with digest exists
         """
-        filename = self.__get_filename(json.loads(data))
+        filename = self.__get_filename(data.decode("utf-8"))
         if os.path.exists(filename):
             web.ctx.status = '200 file or directory exists'
         else:
@@ -148,7 +153,7 @@ class FileIndex(object):
         """
         check if block with digest exists
         """
-        filename = self.__get_filename(json.loads(data))
+        filename = self.__get_filename(data.decode("utf-8"))
         if os.path.isfile(filename):
             web.ctx.status = '200 file exists'
         else:
@@ -159,7 +164,7 @@ class FileIndex(object):
         """
         check if block with digest exists
         """
-        filename = self.__get_filename(json.loads(data.decode("unicode-escape")))
+        filename = self.__get_filename(data.decode("utf-8"))
         if os.path.isdir(filename):
             web.ctx.status = '200 file exists'
         else:
@@ -169,8 +174,8 @@ class FileIndex(object):
         """
         return file stats of stored file
         """
-        filename = self.__get_filename(json.loads(data))
-        stat = os.stat(filename.encode("utf-8"))
+        filename = self.__get_filename(data.decode("utf-8"))
+        stat = os.stat(filename)
         ret_data = {
             "st_atime" : stat.st_atime,
             "st_mtime" : stat.st_mtime,
@@ -188,7 +193,7 @@ class FileIndex(object):
         if no checksum is given, a directory will be created
         """
         mydata = json.loads(data)
-        filename = self.__get_filename(mydata["name"])
+        filename = self.__get_filename(mydata["name"].decode("utf-8"))
         assert len(data) > 0
         checksum = mydata["checksum"]
         if not os.path.isfile(filename):
@@ -212,7 +217,7 @@ class FileIndex(object):
 
         if no checksum is given, a directory will be created
         """
-        filename = self.__get_filename(json.loads(data))
+        filename = self.__get_filename(data.decode("utf-8"))
         logging.info("creating directory %s", filename)
         if not os.path.exists(filename):
             os.mkdir(filename)
@@ -225,7 +230,7 @@ class FileIndex(object):
 
         the block should only be deleted if not used anymore in any FileStorage
         """
-        filename = self.__get_filename(json.loads(data))
+        filename = self.__get_filename(data.decode("utf-8"))
         if os.path.isfile(filename):
             os.unlink(filename)
         else:

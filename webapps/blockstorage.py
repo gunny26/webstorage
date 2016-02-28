@@ -160,7 +160,7 @@ class BlockStorage(object):
             else:
                 web.ctx.status = '201 block rewritten'
                 logging.info("block %s already exists", self.__get_filename(md5))
-            return json.dumps(digest.hexdigest())
+            return digest.hexdigest()
         else:
             web.ctx.status = '501 no data to store'
 
