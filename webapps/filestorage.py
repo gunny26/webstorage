@@ -5,7 +5,7 @@ import os
 import time
 import logging
 FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
-logging.basicConfig(level=logging.DEBUG, format=FORMAT)
+logging.basicConfig(level=logging.INFO, format=FORMAT)
 import hashlib
 import json
 
@@ -63,7 +63,7 @@ class FileStorage(object):
         else:
             method = params[0]
             method_args = params[1:]
-        logging.info("calling method %s", method)
+        logging.debug("calling method %s", method)
         data = web.data()
         if method == "get":
             return self.get(method_args, data)
@@ -146,7 +146,7 @@ class FileStorage(object):
                 existing = json.load(open(self.__get_filename(md5), "rb"))
                 try:
                     assert existing == metadata
-                    logging.error("Metadata for %s already stored", md5)
+                    logging.debug("Metadata for %s already stored", md5)
                     web.ctx.status = '201 metadata existed'
                 except AssertionError as exc:
                     logging.exception(exc)
