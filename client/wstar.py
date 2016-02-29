@@ -6,8 +6,8 @@ import time
 import json
 import StringIO
 import gzip
-import zlib
 import sys
+import socket
 # own modules
 from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import FileStorageClient as FileStorageClient
@@ -64,11 +64,16 @@ def create(path, blacklist, outfile):
     archive_dict["totalcount"] = totalcount
     archive_dict["totalsize"] = totalsize
     archive_dict["stoptime"] = time.time()
-    fh = gzip.open(outfile, "w+b")
-    json.dump(archive_dict, fh)
-    fh.close()
-    fi.upload(outfile)
-    filehash = fi.get(u"/" + outfile)
+    gzip_data = StringIO.StringIO()
+    gzip_handle = gzip.GzipFile(fileobj=gzip_data, mode="w")
+    gzip_handle.write(json.dumps(archive_dict))
+    gzip_handle.close()
+    fi.write(StringIO.StringIO(gzip_data.getvalue()), outfile)
+    #fh = gzip.open(outfile, "w+b")
+    #json.dump(archive_dict, fh)
+    #fh.close()
+    #fi.upload(outfile)
+    filehash = fi.get(outfile)
     return filehash
 
 def diff(checksum):
@@ -113,10 +118,14 @@ if __name__ == "__main__":
     try:
         arg = sys.argv[1]
     except IndexError:
-        arg = "/home/pi/"
-    outfile = "wtar_backup_%d.json.gz" % int(time.time())
+        arg = "/home/arthur/"
+    basedir = "/wstar_%s" % socket.gethostname()
+    wstarname = "%s_%d_0.wstar" % (socket.gethostname(), int(time.time()))
+    outfile = "%s/%s" % (basedir, wstarname)
+    if not fi.isdir(basedir):
+        fi.mkdir(basedir)
     blacklist = json.load(open("blacklist.json", "r"))
-    filehash = create("/home/pi/", blacklist, outfile)
+    filehash = create(arg, blacklist, outfile)
     print "Backup stored in %s" % filehash
     difffiles = diff(filehash)
     print difffiles

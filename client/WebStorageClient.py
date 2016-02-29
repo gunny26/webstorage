@@ -179,7 +179,7 @@ class FileStorageClient(WebAppClient):
     def get(self, hexdigest):
         """
         returns blockchain of file defined by hexdigest
-        
+
         this is not the data of this file, only the plan how to assemble the file
         """
         res = requests.get(self.get_url("get", hexdigest))
