@@ -26,49 +26,6 @@ class HTTP404(Exception):
 
 class WebAppClient(object):
 
-#    def _call_url(self, method="GET", data=None, params=()):
-#        logging.debug("called %s with params %s", method, str(params))
-#        logging.debug("calling url: %s", self.url)
-#        url = u"/".join((self.url, u"/".join(params)))
-#        #logging.info("calling %s %s", method, url)
-#        try:
-#            #req = urllib2.Request(url,
-#            #    data,
-#            #    {'Content-Type': 'application/octet-stream'})
-#            #req.get_method = lambda: method
-#            #res = urllib2.urlopen(req)
-#            headers = {'Content-Type': 'application/octet-stream'}
-#            res = pool.urlopen(method, url, headers=headers, body=data)
-#            return res
-#        except urllib2.HTTPError as exc:
-#            if exc.code == 404:
-#                raise HTTP404()
-#            logging.exception(exc)
-#            logging.error("error calling %s %s", method, url)
-#        except urllib2.URLError as exc:
-#            logging.exception(exc)
-#            logging.error("error calling %s %s", method, url)
-#
-#    def urlcall(self, method, urlparams=None, data=None):
-#        params = u""
-#        if urlparams is not None:
-#            if not (isinstance(urlparams, list) or isinstance(urlparams, tuple)):
-#                params = (method.lower(), urlparams)
-#            else:
-#                params = [method.lower(), ] + list(urlparams)
-#        else:
-#            params = [method.lower(), ]
-#        assert isinstance(method, basestring)
-#        return self._call_url(u"GET", data=data, params=params)
-#
-#    @staticmethod
-#    def uri_encode(text):
-#        return base64.urlsafe_b64encode(text.encode("utf-8"))
-#
-#    @staticmethod
-#    def uri_decode(text):
-#        return base64.urlsafe_b64decode(text.decode("utf-8"))
-
     def get_url(self, *args):
         return u"/".join((self.url, "/".join(args)))
 
@@ -83,6 +40,7 @@ class BlockStorageClient(WebAppClient):
             self.url = url
 
     def put(self, data):
+        """put some arbitrary data into storage"""
         res = requests.get(self.get_url("put"), data=data)
         if res.status_code in (200, 201):
             if res.status_code == 201:
@@ -91,23 +49,27 @@ class BlockStorageClient(WebAppClient):
         raise HTTP404("webapplication delivered status %s" % res.status_code)
 
     def get(self, hexdigest):
+        """get data defined by hexdigest from storage"""
         res = requests.get(self.get_url("get", hexdigest))
         if res.status_code == 404:
             raise HTTP404("block with checksum %s does not exist" % hexdigest)
-        return res.data
+        return res.content
 
     def delete(self, hexdigest):
+        """delete data defined by hexdigest from storage"""
         res = requests.get(self.get_url("delete", hexdigest))
         if res.status_code == 404:
             raise HTTP404("block with checksum %s does not exist" % hexdigest)
 
     def exists(self, hexdigest):
+        """check if data defined by hexdigest exists"""
         res = requests.get(self.get_url("exists", hexdigest))
         if res.status_code == 200:
             return True
         return False
 
     def ls(self):
+        """return all availabel data defined by hexdigest as list of hexdigests"""
         res = requests.get(self.get_url("ls"))
         if res.status_code == 200:
             return res.json()
@@ -127,7 +89,13 @@ class FileStorageClient(WebAppClient):
         self.blocksize = blocksize
 
     def put(self, fh):
-        """save data of fileobject in Blockstorage"""
+        """
+        save data of fileobject in Blockstorage
+        data is chunked in self.blocksize pieces and sent to BlockStorage
+
+        the data is anyway transfered to BlockStorage, no matter if
+        this data is already stored
+        """
         def read_block():
             return fh.read(self.blocksize)
         metadata = {
@@ -150,7 +118,12 @@ class FileStorageClient(WebAppClient):
         raise HTTP404("webapplication returned status %s" % res.status_code)
 
     def put_fast(self, fh):
-        """save data of fileobject in Blockstorage"""
+        """
+        save data of fileobject in Blockstorage
+        data is chunked in self.blocksize pieces and sent to BlockStorage
+
+        if hexdigest of chunk exists in blockstorage, the data is not transfered
+        """
         def read_block():
             return fh.read(self.blocksize)
         metadata = {
@@ -181,7 +154,11 @@ class FileStorageClient(WebAppClient):
         raise HTTP404("webapplication returned status %s" % res.status_code)
 
     def read(self, hexdigest):
-        """return data as generator"""
+        """
+        return data as generator
+        yields data blocks of self.blocksize
+        the last block is almoust all times less than self.blocksize
+        """
         res = requests.get(self.get_url("get", hexdigest))
         if res.status_code == 200:
             metadata = res.json()
@@ -191,12 +168,20 @@ class FileStorageClient(WebAppClient):
             raise HTTP404("webapplication returned status %s" % res.status_code)
 
     def delete(self, hexdigest):
+        """
+        delete blockchain defined by hexdigest
+        the unerlying data in BlockStorage will not be deleted
+        """
         res = requests.get(self.get_url("delete", hexdigest))
         if res.status_code != 200:
             raise HTTP404("webapplication returned status %s" % res.status_code)
 
     def get(self, hexdigest):
-        """returns only hexdigest of FileStorage Element to get the data"""
+        """
+        returns blockchain of file defined by hexdigest
+        
+        this is not the data of this file, only the plan how to assemble the file
+        """
         res = requests.get(self.get_url("get", hexdigest))
         if res.status_code == 200:
             return res.json()
@@ -204,6 +189,9 @@ class FileStorageClient(WebAppClient):
             raise HTTP404("webapplication returned status %s" % res.status_code)
 
     def ls(self):
+        """
+        return list of hexdigests stored in FileStorage
+        """
         res = requests.get(self.get_url("ls"))
         if res.status_code == 200:
             return res.json()
@@ -211,6 +199,9 @@ class FileStorageClient(WebAppClient):
             raise HTTP404("webapplication returned status %s" % res.status_code)
 
     def exists(self, hexdigest):
+        """
+        check if file defined by hexdigest is already stored
+        """
         res = requests.get(self.get_url("exists", hexdigest))
         if res.status_code == 200:
             return True
@@ -235,7 +226,9 @@ class FileIndexClient(WebAppClient):
     # here begins main API
 
     def put(self, filepath, checksum):
-        """save filename to checksum in FileIndex"""
+        """
+        save filename to checksum in FileIndex
+        """
         data = {"name" : filepath.encode("utf-8"), "checksum" : checksum}
         res = requests.get(self.get_url("put"), data=json.dumps(data))
         if res.status_code == 201:
@@ -244,6 +237,9 @@ class FileIndexClient(WebAppClient):
             raise HTTP404("got status %d on put" % res.status_code)
 
     def get(self, filepath):
+        """
+        return hexdigest of file, named by filepath
+        """
         res = requests.get(self.get_url("get"), data=filepath.encode("utf-8"))
         if res.status_code == 404:
             raise HTTP404("File not found")
@@ -256,14 +252,25 @@ class FileIndexClient(WebAppClient):
         return checksum
 
     def read(self, filepath):
+        """
+        return data for file defined by filepath
+        """
         checksum = self.get(filepath)
         return self.fs.read(checksum)
 
     def write(self, fh, filepath):
+        """
+        write (upload) data read from filehandle to FileStorage/BlockStorage
+        and store file hexdigest with name filepath in FileIndex
+        """
         metadata = self.fs.put(fh)
         self.put(filepath, metadata[u"checksum"])
 
     def upload(self, filename, path="/"):
+        """
+        open local file named by filename and put data to WebStorage,
+        afterwards store file in FileIndex
+        """
         fh = open(filename, "rb")
         self.write(fh, os.path.join(path, os.path.basename(filename)))
         fh.close()
@@ -302,16 +309,6 @@ class FileIndexClient(WebAppClient):
         if res.status_code == 200:
             return True
         return False
-
-#    def walk(self, filepath):
-#        assert self.isdir(filepath)
-#        result = []
-#        for item in self.listdir(filepath):
-#            if self.isfile(item):
-#                result.append(item)
-#            else:
-#                result += self.walk(item)
-#        return result
 
     def mkdir(self, filepath):
         if not self.exists(filepath):
