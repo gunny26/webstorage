@@ -280,7 +280,7 @@ class FileIndexClient(WebAppClient):
         res = requests.get(self.get_url("listdir"), data=filepath.encode("utf-8"), headers=headers)
         logging.error(res.encoding)
         # list of utf-8 encoded strings, must decode
-        return [item.force_encoding("iso8859-1").encode("utf-8") for item in res.json()]
+        return res.json()
 
     def delete(self, filepath):
         res = requests.get(self.get_url("delete"), data=filepath.encode("utf-8"))

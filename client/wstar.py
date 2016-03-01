@@ -2,12 +2,14 @@
 import glob
 import os
 import hashlib
+import datetime
 import time
 import json
 import StringIO
 import gzip
 import sys
 import socket
+import argparse
 # own modules
 from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import FileStorageClient as FileStorageClient
@@ -32,7 +34,7 @@ def create(path, blacklist, outfile):
     }
     totalsize = 0
     totalcount = 0
-    for root, dirs, files in os.walk(unicode(arg)):
+    for root, dirs, files in os.walk(unicode(path)):
         for filename in files:
             absfilename = os.path.join(root, filename)
             if blacklist_match(blacklist, absfilename):
@@ -76,10 +78,17 @@ def create(path, blacklist, outfile):
     filehash = fi.get(outfile)
     return filehash
 
+def get_backupdata(checksum):
+    data = ""
+    for block in fs.read(checksum):
+        data += block
+    gzip_handle = gzip.GzipFile(fileobj=StringIO.StringIO(data))
+    return json.loads(gzip_handle.read())
+ 
+
 def diff(checksum):
     difffiles = []
-    blockchain = fs.get(checksum)
-    print blockchain
+    backupdata = get_backupdata(checksum)
     data = ""
     for block in fs.read(checksum):
         data += block
@@ -115,17 +124,33 @@ if __name__ == "__main__":
     bs = BlockStorageClient()
     fs = FileStorageClient(bs)
     fi = FileIndexClient(fs)
-    try:
-        arg = sys.argv[1]
-    except IndexError:
-        arg = "/home/arthur/"
+    parser = argparse.ArgumentParser(description='manage WebStorage backups')
+    parser.add_argument("-c", '--create', help="create a new archive") 
+    parser.add_argument("-l", '--ls', action='store_true', help="list existing archives for this host") 
+    parser.add_argument("-d", '--diff', help="show differences between local and given archive") 
+    parser.add_argument("-b", '--blacklist', default="blacklist.json", help="blacklist file in JSON Format")
+    parser.add_argument("-t", '--tag', help="tag string for this particular archive", required=False)
+    args = parser.parse_args()
+    print args.create
     basedir = "/wstar_%s" % socket.gethostname()
-    wstarname = "%s_%d_0.wstar" % (socket.gethostname(), int(time.time()))
-    outfile = "%s/%s" % (basedir, wstarname)
-    if not fi.isdir(basedir):
-        fi.mkdir(basedir)
-    blacklist = json.load(open("blacklist.json", "r"))
-    filehash = create(arg, blacklist, outfile)
-    print "Backup stored in %s" % filehash
-    difffiles = diff(filehash)
-    print difffiles
+    blacklist = json.load(open(args.blacklist, "r"))
+    if args.create is not None: 
+        if not os.path.isdir(args.create):
+            print "%s does not exist" % args.create
+            sys.exit(1)
+        wstarname = "%s_%d_0.wstar" % (socket.gethostname(), int(time.time()))
+        outfile = "%s/%s" % (basedir, wstarname)
+        if not fi.isdir(basedir):
+            fi.mkdir(basedir)
+        filehash = create(args.create, blacklist, outfile)
+        print "Backup stored in %s" % filehash
+    elif args.diff is not None:
+        filehash = fi.get(os.path.join(basedir, args.diff))
+        difffiles = diff(filehash)
+        print difffiles
+    elif args.ls is not None:
+        for filename in fi.listdir(basedir):
+            filehash = fi.get(os.path.join(basedir, filename))
+            backupdata = get_backupdata(filehash)
+            date = datetime.datetime.fromtimestamp(backupdata["starttime"])
+            print date, filename
