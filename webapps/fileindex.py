@@ -116,9 +116,9 @@ class FileIndex(object):
         if arguments end with / a directory listing will be served,
         otherwise the content of the specific file will be returned
         """
-        filename = self.__get_filename(data.decode("utf-8"))
-        if os.path.isfile(filename):
-            return self.__ret_json(open(filename, "rb").read())
+        filename = self.__get_filename(unicode(data, "utf-8"))
+        if os.path.isfile(filename.encode("utf-8")):
+            return self.__ret_json(open(filename.encode("utf-8"), "rb").read())
         else:
             logging.error("File %s does not exist", filename)
             web.notfound()
@@ -130,9 +130,9 @@ class FileIndex(object):
         if arguments end with / a directory listing will be served,
         otherwise the content of the specific file will be returned
         """
-        filename = self.__get_filename(data.decode("utf-8"))
-        if os.path.isdir(filename):
-            return self.__ret_json(os.listdir(filename))
+        filename = self.__get_filename(unicode(data, "utf-8"))
+        if os.path.isdir(filename.encode("utf-8")):
+            return self.__ret_json(os.listdir(filename.encode("utf-8")))
         else:
             logging.error("File %s does not exist", filename)
             web.notfound()
@@ -143,7 +143,7 @@ class FileIndex(object):
         check if block with digest exists
         """
         filename = self.__get_filename(data.decode("utf-8"))
-        if os.path.exists(filename):
+        if os.path.exists(filename.encode("utf-8")):
             web.ctx.status = '200 file or directory exists'
         else:
             web.notfound()
@@ -153,8 +153,8 @@ class FileIndex(object):
         """
         check if block with digest exists
         """
-        filename = self.__get_filename(data.decode("utf-8"))
-        if os.path.isfile(filename):
+        filename = self.__get_filename(unicode(data, "utf-8"))
+        if os.path.isfile(filename.encode("utf-8")):
             web.ctx.status = '200 file exists'
         else:
             web.notfound()
@@ -164,8 +164,8 @@ class FileIndex(object):
         """
         check if block with digest exists
         """
-        filename = self.__get_filename(data.decode("utf-8"))
-        if os.path.isdir(filename):
+        filename = self.__get_filename(unicode(data, "utf-8"))
+        if os.path.isdir(filename.encode("utf-8")):
             web.ctx.status = '200 file exists'
         else:
             web.notfound()
@@ -174,8 +174,8 @@ class FileIndex(object):
         """
         return file stats of stored file
         """
-        filename = self.__get_filename(data.decode("utf-8"))
-        stat = os.stat(filename)
+        filename = self.__get_filename(unicode(data, "utf-8"))
+        stat = os.stat(filename.encode("utf-8"))
         ret_data = {
             "st_atime" : stat.st_atime,
             "st_mtime" : stat.st_mtime,
