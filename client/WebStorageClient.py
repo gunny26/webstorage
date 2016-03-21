@@ -149,7 +149,7 @@ class FileStorageClient(WebAppClient):
         res = requests.get(self.get_url("put", metadata["checksum"]), data=json.dumps(metadata))
         if res.status_code in (200, 201):
             if res.status_code == 201:
-                logging.info("file for this checksum already existed")
+                logging.debug("file wirh checksum %s already existed", metadata["checksum"])
             return metadata
         raise HTTP404("webapplication returned status %s" % res.status_code)
 

@@ -10,6 +10,10 @@ import gzip
 import sys
 import socket
 import argparse
+import logging
+logging.basicConfig(level=logging.INFO)
+logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 # own modules
 from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import FileStorageClient as FileStorageClient
@@ -43,6 +47,7 @@ def create(path, blacklist, outfile):
     totalcount = 0
     for root, dirs, files in os.walk(unicode(path)):
         for filename in files:
+            action = "unknown"
             absfilename = os.path.join(root, filename)
             if blacklist_match(blacklist, absfilename):
                 logging.info("%s blacklisted", absfilename)
@@ -65,7 +70,7 @@ def create(path, blacklist, outfile):
                     archive_dict["hashmap"][filemeta_md5.hexdigest()].append(absfilename)
                 else:
                     archive_dict["hashmap"][filemeta_md5.hexdigest()] = [absfilename,]
-                logging.info("%s %s", metadata["checksum"], absfilename)
+                logging.info("%s %s %s", metadata["checksum"], absfilename, action)
                 totalcount += 1
                 totalsize += size
             except OSError as exc:
@@ -91,8 +96,11 @@ def get_backupdata(checksum):
     for block in fs.read(checksum):
         data += block
     gzip_handle = gzip.GzipFile(fileobj=StringIO.StringIO(data))
-    return json.loads(gzip_handle.read())
- 
+    try:
+        data = json.loads(gzip_handle.read())
+        return data
+    except IOError as exc:
+        logging.exception(exc)
 
 def diff(checksum):
     difffiles = []
@@ -236,8 +244,11 @@ if __name__ == "__main__":
         for filename in sorted(fi.listdir(basedir)):
             filehash = fi.get(os.path.join(basedir, filename))
             backupdata = get_backupdata(filehash)
-            date = datetime.datetime.fromtimestamp(backupdata["starttime"])
-            print date, filename, len(backupdata["filedata"])
+            if backupdata is not None:
+                date = datetime.datetime.fromtimestamp(backupdata["starttime"])
+                print date, filename, len(backupdata["filedata"])
+            else:
+                logging.error("Data corruption in file %s [%s]", filename, filehash)
     elif args.rm is not None:
         filehash = fi.get(os.path.join(basedir, args.rm))
         backupdata = get_backupdata(filehash)
