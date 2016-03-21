@@ -11,18 +11,18 @@ from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import FileStorageClient as FileStorageClient
 from WebStorageClient import FileIndexClient as FileIndexClient
 
+# decode early, encode late
 
 def walk(fi, directory):
     #assert isinstance(directory, unicode)
-    logging.info("descending into %s", directory)
+    # logging.info("descending into %s", directory)
     # remove trailing / at directory path
     if len(directory) > 1 and directory.endswith(u"/"):
         directory = directory[:-1]
     try:
         for filename in fi.listdir(directory):
             filename = unicode(filename)
-            print filename
-            print ":".join(["%x" % ord(char) for char in filename])
+            #print ":".join(["%x" % ord(char) for char in filename])
             abspath = directory + "/" + filename
             if directory == u"/":
                 abspath = u"/" + filename
@@ -42,7 +42,9 @@ if __name__ == "__main__":
     fs = FileStorageClient(bs)
     fi = FileIndexClient(fs)
     existing_blocks = set(bs.ls())
+    logging.info("existing blocks in BlockStorage: %d", len(existing_blocks))
     existing_file_checksums = set(fs.ls())
+    logging.info("existing files in FileStorage: %d", len(existing_file_checksums))
     used_blocks = set()
     filechecksum_counter = {}
     used_checksums = set()
@@ -53,7 +55,7 @@ if __name__ == "__main__":
             assert isinstance(checksum, basestring)
             assert len(checksum) == len("4da1e9a09036f981f56ed1c5b3d00e8b")
         except AssertionError as exc:
-            print "%s : %s does not look like checksum" % (filename, checksum)
+            logging.error("%s : %s does not look like checksum", filename, checksum)
             raise exc
         used_checksums.add(checksum)
         if checksum not in filechecksum_counter:

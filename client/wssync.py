@@ -17,10 +17,10 @@ if __name__ == "__main__":
     try:
         sourcedir = sys.argv[1]
         if sourcedir.endswith("/"):
-            sourcedir = sourcedir[:-1]
+            sourcedir = unicode(sourcedir[:-1])
         targetdir = sys.argv[2]
         if targetdir.endswith("/"):
-            targetdir = targetdir[:-1]
+            targetdir = unicode(targetdir[:-1])
     except IndexError:
         print "usage {sourcedirectory} {targetdirectory"
         sys.exit(3)

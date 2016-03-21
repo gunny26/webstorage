@@ -229,8 +229,9 @@ class FileIndexClient(WebAppClient):
         """
         save filename to checksum in FileIndex
         """
+        headers = {'Content-Type' : 'appliaction/json; charset=utf-8'}
         data = {"name" : filepath.encode("utf-8"), "checksum" : checksum}
-        res = requests.get(self.get_url("put"), data=json.dumps(data))
+        res = requests.get(self.get_url("put"), data=json.dumps(data), headers=headers)
         if res.status_code == 201:
             logging.info("File put in store, but already existed")
         elif re.status_code != 200:
@@ -240,6 +241,7 @@ class FileIndexClient(WebAppClient):
         """
         return hexdigest of file, named by filepath
         """
+        headers = {'Content-Type' : 'text/html; charset=utf-8'}
         res = requests.get(self.get_url("get"), data=filepath.encode("utf-8"))
         if res.status_code == 404:
             raise HTTP404("File not found")
@@ -278,27 +280,30 @@ class FileIndexClient(WebAppClient):
     def listdir(self, filepath):
         headers = {'Content-Type' : 'text/html; charset=utf-8'}
         res = requests.get(self.get_url("listdir"), data=filepath.encode("utf-8"), headers=headers)
-        logging.error(res.encoding)
         # list of utf-8 encoded strings, must decode
         return res.json()
 
     def delete(self, filepath):
-        res = requests.get(self.get_url("delete"), data=filepath.encode("utf-8"))
+        headers = {'Content-Type' : 'text/html; charset=utf-8'}
+        res = requests.get(self.get_url("delete"), data=filepath.encode("utf-8"), headers=headers)
         if res.status_code != 200:
             raise HTTP404("File %s could not be deleted" % filepath.encode("utf-8"))
 
     def stats(self, filepath):
-        res = requests.get(self.get_url("stats"), data=filepath.encode("utf-8"))
+        headers = {'Content-Type' : 'text/html; charset=utf-8'}
+        res = requests.get(self.get_url("stats"), data=filepath.encode("utf-8"), headers=headers)
         return res.text
 
     def exists(self, filepath):
-        res = requests.get(self.get_url("exists"), data=filepath.encode("utf-8"))
+        headers = {'Content-Type' : 'text/html; charset=utf-8'}
+        res = requests.get(self.get_url("exists"), data=filepath.encode("utf-8"), headers=headers)
         if res.status_code == 200:
             return True
         return False
 
     def isfile(self, filepath):
-        res = requests.get(self.get_url("isfile"), data=filepath.encode("utf-8"))
+        headers = {'Content-Type' : 'text/html; charset=utf-8'}
+        res = requests.get(self.get_url("isfile"), data=filepath.encode("utf-8"), headers=headers)
         if res.status_code == 200:
             return True
         return False
@@ -311,10 +316,11 @@ class FileIndexClient(WebAppClient):
         return False
 
     def mkdir(self, filepath):
+        headers = {'Content-Type' : 'text/html; charset=utf-8'}
         if not self.exists(filepath):
-            res = requests.get(self.get_url("mkdir"), data=filepath.encode("utf-8"))
+            res = requests.get(self.get_url("mkdir"), data=filepath.encode("utf-8"), headers=headers)
         else:
-            logging.error("file or directory %s exists")
+            logging.error("file or directory %s exists", filepath)
 
     def copy(self, source, target):
         if self.exists(source):
