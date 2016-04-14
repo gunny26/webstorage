@@ -64,89 +64,68 @@ class BlockStorage(object):
         """
         return os.path.join(STORAGE_DIR, "%s.bin" % checksum)
 
-    @calllogger
-    def GET(self, args):
+    def __get_rfc_filename(self, checksum):
         """
-        GET multiplexer, uses first part of URL path to get the desired method,
-        than calles given method with remaining URL Paths
+        build and return absolute filpath
 
         params:
-        args <list> called by web.py
+        checksum <basestring>
+
+        ret:
+        <basestring>
         """
-        params = args.split("/")
-        method = None
-        method_args = None
-        if len(params) == 1:
-            method = params[0]
-            method_args = ()
+        return os.path.join(STORAGE_DIR, "%s.rfc" % checksum)
+
+    def __get_rfc(self, checksum):
+        """get reference counter"""
+        return int(open(self.__get_rfc_filename(checksum), "rb").read())
+
+    def __set_rfc(self, checksum, value):
+        """set reference counter to given value"""
+        open(self.__get_rfc_filename(checksum), "wb").write(str(value))
+
+    def __inc_rfc(self, checksum):
+        """increment reference counter by 1"""
+        self.__set_rfc(checksum, self.__get_rfc(checksum) + 1)
+
+    def __dec_rfc(self, checksum):
+        """decrement reference counter by 1"""
+        self.__set_rfc(checksum, self.__get_rfc(checksum) - 1)
+
+    @calllogger
+    def GET(self, path):
+        """
+        get some data or return available blocks in storage
+
+        if called with argument in URI, try to find the specified block,
+        if no argument is given return a list of available blockchecksums
+        """
+        args = path.split("/")
+        if len(args) == 0:
+            # ls behaviour
+            return json.dumps([filename[:-4] for filename in os.listdir(STORAGE_DIR)])
         else:
-            method = params[0]
-            method_args = params[1:]
-        logging.debug("calling method %s", method)
-        data = web.data()
-        if method == "get":
-            return self.get(method_args, data)
-        elif method == "exists":
-            return self.exists(method_args, data)
-        elif method == "stats":
-            return self.stats(method_args, data)
-        elif method == "put":
-            return self.put(method_args, data)
-        elif method == "ls":
-            return self.ls(method_args, data)
-        elif method == "delete":
-            return self.delete(method_args, data)
-        logging.info("call for non-exsiting method detected")
-        web.notfound()
+            # get data behaviour
+            md5 = args[0]
+            if os.path.isfile(self.__get_filename(md5)):
+                # set to octet stream, binary data
+                web.header('Content-Type', 'application/octet-stream')
+                return open(self.__get_filename(md5), "rb").read()
+            else:
+                logging.error("File %s does not exist", self.__get_filename(md5))
+                web.notfound()
 
-    def get(self, args, data):
+    @calllogger
+    def PUT(self, path):
         """
-	get block stored in blockstorage directory with hash
-        
-        md5 checksum is the remaining part of URI
+        PUT some new data to Blockstorage
+        should always be called without arguments
+        data in http data segment
 
-        GOOD : HTTP 200
-        BAD  : HTTP 404 
-        UGLY : catched by decorator
-        """
-        md5 = args[0]
-        if os.path.isfile(self.__get_filename(md5)):
-            # set to octet stream, binary data
-            web.header('Content-Type', 'application/octet-stream')
-            return open(self.__get_filename(md5), "rb").read()
-        else:
-            logging.error("File %s does not exist", self.__get_filename(md5))
-            web.notfound()
+        returns 200 if this was write
+        returns 201 if this was update
 
-    def ls(self, args, data):
-        """
-        returns list of existing block checksums
-
-        GOOD : HTTP 200 and json encoded list checksums
-        BAD  : this should not be possible
-        UGLY : catched by decorator
-        """
-        return json.dumps([filename[:-4] for filename in os.listdir(STORAGE_DIR)])
-
-    def exists(self, args, data):
-        """
-        check if block with digest exists
-
-        GOOD : HTTP 200
-        BAD  : HTTP 404 for not found, not existing
-        UGLY : catched by decorator
-        """
-        md5 = args[0]
-        if not os.path.exists(self.__get_filename(md5)):
-            web.notfound()
-
-    def put(self, args, data):
-        """
-        put data into storage
- 
-        GOOD : HTTP 200 - stored, HTTP 201 - existed already but stored
-        BAD  : HTTP 500 - no data
-        UGLY : catched by decorator
+        returns checksum of stored data
         """
         data = web.data()
         if len(data) > 0:
@@ -154,28 +133,58 @@ class BlockStorage(object):
             digest.update(data)
             md5 = digest.hexdigest()
             if not os.path.isfile(self.__get_filename(md5)):
-                fo = open(self.__get_filename(md5), "wb")
+                filename = self.__get_filename(md5)
+                fo = open(filename, "wb")
                 fo.write(data)
                 fo.close()
+                self.__set_rfc(md5, 1)
             else:
                 web.ctx.status = '201 block rewritten'
                 logging.info("block %s already exists", self.__get_filename(md5))
+                filename = self.__get_filename(md5)
+                self.__inc_rfc(md5)
             return digest.hexdigest()
         else:
             web.ctx.status = '501 no data to store'
 
-    def delete(self, args, data):
+    @calllogger
+    def OPTIONS(self, path):
         """
-        delete block with md5checksum given
-        the block should only be deleted if not used anymore in any FileStorage
+        get some information of this checksum, but no data
+        used as exists equivalent
 
-        GOOD : HTTP 200 - block deleted
-        BAD  : HTTP 404 - not found if block does not exist
-        UGLY : catched by decorator
+        returns 200 if this checksum exists
+        returns refcounter in data segment
+
+        either raise 404
         """
-        md5 = args[0]
+        md5 = path.split("/")[0]
+        if not os.path.exists(self.__get_filename(md5)):
+            web.notfound()
+        else:
+            return self.__get_rfc(md5)
+
+    @calllogger
+    def DELETE(self, path):
+        """
+        delete some block with checksum, but only decrease
+        refcounter until refcounter reaches 0, then delete data
+
+        returns 200 if this checksum exists
+        returns refcounter in data segment left
+        """
+        md5 = path.split("/")[0]
         if os.path.exists(self.__get_filename(md5)):
-            os.unlink(self.__get_filename(md5))
+            rfc = self.__get_rfc(checksum) - 1
+            if rfc > 0:
+                self.__set_rfc(checksum, rfc)
+                web.ctx.status = '201 refcounter decreased to %d' % rfc
+                return rfc
+            else:
+                filename = self.__get_filename(md5)
+                os.unlink(self.__get_filename(md5))
+                os.unlink(self.__get_rfc_filename(md5))
+                web.ctx.status = '200 block deleted'
         else:
             web.notfound()
 

@@ -62,8 +62,8 @@ class FileIndex(object):
         return filename
 
     def __get_filename(self, basename):
-        logging.error(":".join(["%x" % ord(char) for char in basename]))
-        logging.error(basename)
+        #logging.error(":".join(["%x" % ord(char) for char in basename]))
+        #logging.error(basename)
         if basename.startswith(u"/"):
             basename = basename[1:]
         filename = os.path.join(STORAGE_DIR, basename)
