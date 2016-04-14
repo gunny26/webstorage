@@ -41,7 +41,7 @@ class BlockStorageClient(WebAppClient):
 
     def put(self, data):
         """put some arbitrary data into storage"""
-        res = requests.get(self.get_url("put"), data=data)
+        res = requests.put(self.get_url(), data=data)
         if res.status_code in (200, 201):
             if res.status_code == 201:
                 logging.info("block existed, but rewritten")
@@ -50,27 +50,27 @@ class BlockStorageClient(WebAppClient):
 
     def get(self, hexdigest):
         """get data defined by hexdigest from storage"""
-        res = requests.get(self.get_url("get", hexdigest))
+        res = requests.get(self.get_url(hexdigest))
         if res.status_code == 404:
             raise HTTP404("block with checksum %s does not exist" % hexdigest)
         return res.content
 
     def delete(self, hexdigest):
         """delete data defined by hexdigest from storage"""
-        res = requests.get(self.get_url("delete", hexdigest))
+        res = requests.delete(self.get_url(hexdigest))
         if res.status_code == 404:
             raise HTTP404("block with checksum %s does not exist" % hexdigest)
 
     def exists(self, hexdigest):
         """check if data defined by hexdigest exists"""
-        res = requests.get(self.get_url("exists", hexdigest))
+        res = requests.options(self.get_url(hexdigest))
         if res.status_code == 200:
             return True
         return False
 
     def ls(self):
         """return all availabel data defined by hexdigest as list of hexdigests"""
-        res = requests.get(self.get_url("ls"))
+        res = requests.get(self.get_url())
         if res.status_code == 200:
             return res.json()
         raise HTTP404("webapplication delivered status %s" % res.status_code)
