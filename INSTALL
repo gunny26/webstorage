@@ -1,4 +1,4 @@
-# on ubunut 14.04.x
+# on ubuntu 14.04.x or debian jessie
 #
 # first install apache2
 sudo apt-get install apache2
@@ -19,27 +19,33 @@ sudo apt-get install python-webpy
     WSGIScriptAlias /filestorage /var/www/webstorage/webapps/filestorage/code.py
 
 # additional optimize apache for minimal memory usage
-a2dismod authn_file
-a2dismod authz_host
-a2dismod authz_user
-a2dismod autoindex
-a2dismod deflate
-a2dismod dir
-a2dismod env
-a2dismod filter
-a2dismod negotiation
-a2dismod setenvif
-a2dismod status
-a2dismod alias
-a2dismod mime
-service apache2 restart
+# not all lines are available on ubuntu and debian
+sudo a2dismod -f authn_file
+sudo a2dismod -f authz_host
+sudo a2dismod -f authz_user
+sudo a2dismod -f autoindex
+sudo a2dismod -f deflate
+sudo a2dismod -f dir
+sudo a2dismod -f env
+sudo a2dismod -f filter
+sudo a2dismod -f negotiation
+sudo a2dismod -f setenvif
+sudo a2dismod -f status
+sudo a2dismod -f alias
+sudo a2dismod -f mime
+sudo a2disconf javascript-common
+sudo a2disconf localized-error-pages
+sudo a2disconf serve-cgi-bin
+sudo apache2ctl restart # to see error messages
+sudo service apache2 restart
 
 # at last define some directories to store data
 # these dierctory must be fully accessible for the webserver user
 # on my example server i mounted /dev/sda on /media/webstorage
-mkdir /media/webstorage
-mount /dev/sda1 /media/webstorage
-mkdir /media/webstorage/blockstorage
-chown www-run /media/webstorage/blockstorage
-mkdir /media/webstorage/filestorage
-chown www-run /media/webstorage/filestorage
+export WEBSTORAGE=/path/to/directory
+mkdir $WEBSTORAGE
+mount /big/block/device $WEBSTORAGE
+mkdir $WEBSTORAGE/blockstorage
+chown www-run $WEBSTORAGE/blockstorage
+mkdir $WEBSTORAGE/filestorage
+chown www-run $WEBSTORAGE/filestorage

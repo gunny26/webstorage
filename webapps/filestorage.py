@@ -14,7 +14,7 @@ urls = ("/(.*)", "FileStorage",
 
 # add wsgi functionality
 CONFIG = {}
-for line in open("/var/www/webstorage/webapps/filestorage/filestorage.ini", "rb"):
+for line in open("/var/www/webstorage/webapps/filestorage.ini", "rb"):
     key, value = line.strip().split("=")
     CONFIG[key] = value
 STORAGE_DIR = CONFIG["STORAGE_DIR"]

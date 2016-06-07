@@ -15,7 +15,7 @@ urls = ("/(.*)", "FileIndex",
 
 # add wsgi functionality
 CONFIG = {}
-for line in open("/var/www/webstorage/webapps/fileindex/fileindex.ini", "rb"):
+for line in open("/var/www/webstorage/webapps/fileindex.ini", "rb"):
     key, value = line.strip().split("=")
     CONFIG[key] = value
 STORAGE_DIR = unicode(CONFIG["STORAGE_DIR"])
