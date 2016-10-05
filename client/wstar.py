@@ -10,14 +10,13 @@ import gzip
 import sys
 import socket
 import argparse
+import pprint
 import logging
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 # own modules
-from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import FileStorageClient as FileStorageClient
-from WebStorageClient import FileIndexClient as FileIndexClient
 
 def blacklist_match(blacklist, absfilename):
     """
@@ -38,7 +37,6 @@ def create(path, blacklist, outfile):
         "path" : path,
         "filedata" : {},
         "hashmap" : {},
-        "outfile" : outfile,
         "blacklist" : blacklist,
         "starttime" : time.time(),
         "stoptime" : None,
@@ -47,7 +45,6 @@ def create(path, blacklist, outfile):
     totalcount = 0
     for root, dirs, files in os.walk(unicode(path)):
         for filename in files:
-            action = "unknown"
             absfilename = os.path.join(root, filename)
             if blacklist_match(blacklist, absfilename):
                 logging.info("%s blacklisted", absfilename)
@@ -70,7 +67,7 @@ def create(path, blacklist, outfile):
                     archive_dict["hashmap"][filemeta_md5.hexdigest()].append(absfilename)
                 else:
                     archive_dict["hashmap"][filemeta_md5.hexdigest()] = [absfilename,]
-                logging.info("%s %s %s", metadata["checksum"], absfilename, action)
+                logging.info("%s %s", metadata["checksum"], absfilename)
                 totalcount += 1
                 totalsize += size
             except OSError as exc:
@@ -80,38 +77,15 @@ def create(path, blacklist, outfile):
     archive_dict["totalcount"] = totalcount
     archive_dict["totalsize"] = totalsize
     archive_dict["stoptime"] = time.time()
-    gzip_data = StringIO.StringIO()
-    gzip_handle = gzip.GzipFile(fileobj=gzip_data, mode="w")
-    gzip_handle.write(json.dumps(archive_dict))
-    gzip_handle.close()
-    fi.write(StringIO.StringIO(gzip_data.getvalue()), outfile)
+    outfile.write(json.dumps(archive_dict))
     logging.info("stored %d files of %s bytes size", totalcount, totalsize)
     duration = archive_dict["stoptime"] - archive_dict["starttime"]
     logging.info("duration %0.2f s, bandwith %0.2f kB/s", duration, totalsize / 1024 / duration)
-    filehash = fi.get(outfile)
-    return filehash
 
-def get_backupdata(checksum):
-    data = ""
-    for block in fs.read(checksum):
-        data += block
-    gzip_handle = gzip.GzipFile(fileobj=StringIO.StringIO(data))
-    try:
-        data = json.loads(gzip_handle.read())
-        return data
-    except IOError as exc:
-        logging.exception(exc)
-
-def diff(checksum):
+def diff(data):
     difffiles = []
-    backupdata = get_backupdata(checksum)
-    data = ""
-    for block in fs.read(checksum):
-        data += block
-    gzip_handle = gzip.GzipFile(fileobj=StringIO.StringIO(data))
-    backupdata = json.loads(gzip_handle.read())
     # check if some files are missing or have changed
-    for absfile, filedata in backupdata["filedata"].items():
+    for absfile, filedata in data["filedata"].items():
         if not os.path.isfile(absfile):
             logging.info("deleted [%s] %s", filedata["checksum"], absfile)
         else:
@@ -127,51 +101,38 @@ def diff(checksum):
                 logging.info("changed [%s] %s", filedata["checksum"], absfile)
                 difffiles.append(absfile)
     # check for new files on local storage
-    for root, dirs, files in os.walk(unicode(backupdata["path"])):
+    for root, dirs, files in os.walk(unicode(data["path"])):
         for filename in files:
             absfilename = os.path.join(root, filename)
-            if blacklist_match(backupdata["blacklist"], absfilename):
+            if blacklist_match(data["blacklist"], absfilename):
                 continue
-            if absfilename not in backupdata["filedata"]:
+            if absfilename not in data["filedata"]:
                 logging.info("new %s", absfilename)
                 difffiles.append(absfilename)
     return difffiles
 
-def check(checksum):
+def check(data):
     """
     check backup archive for consistency
     """
     difffiles = []
-    backupdata = get_backupdata(checksum)
-    data = ""
-    for block in fs.read(checksum):
-        data += block
-    gzip_handle = gzip.GzipFile(fileobj=StringIO.StringIO(data))
-    backupdata = json.loads(gzip_handle.read())
     # check if some files are missing or have changed
     filecount = 0
     blockcount = 0
-    for absfile, filedata in backupdata["filedata"].items():
+    for absfile, filedata in data["filedata"].items():
         logging.info("checking file with checksum %s", filedata["checksum"])
         metadata = fs.get(filedata["checksum"])
         filecount += 1
         for block in metadata["blockchain"]:
             logging.info("    checking block with checksum %s", block)
-            assert bs.exists(block)
             blockcount += 1
     logging.info("all files %d available, %d blocks used", filecount, blockcount)
 
-def restore(checksum, targetpath):
+def restore(backupdata, targetpath):
     """
     check backup archive for consistency
     """
     difffiles = []
-    backupdata = get_backupdata(checksum)
-    data = ""
-    for block in fs.read(checksum):
-        data += block
-    gzip_handle = gzip.GzipFile(fileobj=StringIO.StringIO(data))
-    backupdata = json.loads(gzip_handle.read())
     # check if some files are missing or have changed
     filecount = 0
     blockcount = 0
@@ -195,20 +156,17 @@ def restore(checksum, targetpath):
 
 
 if __name__ == "__main__":
-    bs = BlockStorageClient()
-    fs = FileStorageClient(bs)
-    fi = FileIndexClient(fs)
+    fs = FileStorageClient()
     parser = argparse.ArgumentParser(description='create/manage/restore WebStorage Archives')
-    parser.add_argument("-c", '--create', help="create a new archive") 
-    parser.add_argument("-l", '--ls', action='store_true', help="list existing archives for this host") 
-    parser.add_argument("-d", '--diff', help="show differences between local and given archive") 
+    parser.add_argument("-c", '--create', action="store_true", help="create a new archive", required=False) 
+    parser.add_argument("-x", '--extract', action="store_true", help="restore content of file", required=False)
+    parser.add_argument("-t", '--test', action="store_true", help="shown onventory of archive", required=False)
+    parser.add_argument("-d", '--diff', action="store_true", help="show differences between local and given archive") 
     parser.add_argument("-b", '--blacklist', default="blacklist.json", help="blacklist file in JSON Format")
-    parser.add_argument("-t", '--tag', help="tag string for this particular archive", required=False)
-    parser.add_argument("-r", '--rm', help="remove backupset from archive", required=False)
-    parser.add_argument('--check', help="test if archive is consistent", required=False)
-    parser.add_argument('--restore', help="test if archive is consistent", required=False)
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
+    parser.add_argument('-f', "--file", help="local output file", required=True)
+    parser.add_argument("path", metavar="N", type=str, nargs="+", help="path")
     args = parser.parse_args()
     basedir = "/wstar_%s" % socket.gethostname()
     blacklist = json.load(open(args.blacklist, "r"))
@@ -216,41 +174,33 @@ if __name__ == "__main__":
         logging.getLogger("").setLevel(logging.ERROR)
     if args.verbose is True:
         logging.getLogger("").setLevel(logging.DEBUG)
-    if args.create is not None:
-        if not os.path.isdir(args.create):
+    if args.create is True:
+        if not os.path.isfile(args.file):
+            logging.error("you have to provide -f/--file")
+        if not os.path.isdir(args.path[0]):
             logging.error("%s does not exist", args.create)
             sys.exit(1)
-        wstarname = "%d_%s_0.wstar" % (int(time.time()), socket.gethostname())
-        if args.tag is not None:
-            if not args.tag.isalpha():
-                logging.error("-t/--tag must only contain letters")
-                sys.exit(2)
-            wstarname = "%s_%s_%d_0.wstar" % (socket.gethostname(), args.tag, int(time.time()))
-        outfile = "%s/%s" % (basedir, wstarname)
-        if not fi.isdir(basedir):
-            fi.mkdir(basedir)
-        filehash = create(args.create, blacklist, outfile)
-        logging.info("Backup stored in %s", filehash)
-    elif args.diff is not None:
-        filehash = fi.get(os.path.join(basedir, args.diff))
-        difffiles = diff(filehash)
-    elif args.check is not None:
-        filehash = fi.get(os.path.join(basedir, args.check))
-        check(filehash)
-    elif args.restore is not None:
-        filehash = fi.get(os.path.join(basedir, args.restore))
-        restore(filehash, "/tmp/testrestore/")
-    elif args.ls is not False:
-        for filename in sorted(fi.listdir(basedir)):
-            filehash = fi.get(os.path.join(basedir, filename))
-            backupdata = get_backupdata(filehash)
-            if backupdata is not None:
-                date = datetime.datetime.fromtimestamp(backupdata["starttime"])
-                print date, filename, len(backupdata["filedata"])
-            else:
-                logging.error("Data corruption in file %s [%s]", filename, filehash)
-    elif args.rm is not None:
-        filehash = fi.get(os.path.join(basedir, args.rm))
-        backupdata = get_backupdata(filehash)
-        logging.error("delete %s from FileIndex", args.rm)
-        fi.delete(os.path.join(basedir, args.rm))
+        outfile = args.file
+        create(args.path[0], blacklist, gzip.open(outfile, "wb"))
+    elif args.test is True:
+        if not os.path.isfile(args.file):
+            logging.error("you have to provide -f/--file")
+        else:
+            data = json.loads(gzip.open(args.file, "rb").read())
+            check(data)
+    elif args.diff is True:
+        if not os.path.isfile(args.file):
+            logging.error("you have to provide -f/--file")
+        else:
+            data = json.loads(gzip.open(args.file, "rb").read())
+            pprint.pprint(diff(data))
+    elif args.extract is True:
+        if not os.path.isdir(args.path[0]):
+            logging.error("%s does not exist", args.create)
+            sys.exit(1)
+        if not os.path.isfile(args.file):
+            logging.error("you have to provide -f/--file")
+        else:
+            data = json.loads(gzip.open(args.file, "rb").read())
+            pprint.pprint(data)
+            restore(data, args.path[0])
