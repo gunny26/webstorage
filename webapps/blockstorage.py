@@ -5,7 +5,7 @@ import os
 import time
 import logging
 FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
-logging.basicConfig(level=logging.INFO, format=FORMAT)
+logging.basicConfig(level=logging.DEBUG, format=FORMAT)
 import hashlib
 import json
 
@@ -100,11 +100,12 @@ class BlockStorage(object):
         if called with argument in URI, try to find the specified block,
         if no argument is given return a list of available blockchecksums
         """
-        args = path.split("/")
-        if len(args) == 0:
-            # ls behaviour
+        if len(path) == 0:
+            # ls behaviour if no path is given
+            web.header("Content-Type", "application/json")
             return json.dumps([filename[:-4] for filename in os.listdir(STORAGE_DIR)])
         else:
+            args = path.split("/")
             # get data behaviour
             md5 = args[0]
             if os.path.isfile(self.__get_filename(md5)):
