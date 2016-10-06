@@ -1,11 +1,11 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 import json
 import hashlib
 import logging
 import requests
 
 CONFIG={}
-for line in open("WebStorageClient.ini", "rb"):
+for line in open("WebStorageClient.ini", "r"):
     key, value = line.strip().split("=")
     CONFIG[key] = value
 
@@ -20,7 +20,7 @@ class WebAppClient(object):
     def get_url(self, arg=None):
         if arg is None:
             return self.url + "/"
-        url = u"%s/%s" % (self.url, arg)
+        url = "%s/%s" % (self.url, arg)
         return url
 
 
@@ -33,15 +33,17 @@ class BlockStorageClient(WebAppClient):
         else:
             self.url = url
         logging.debug("URL: %s", self.url)
+        self.session = requests.Session()
 
     def put(self, data):
         """put some arbitrary data into storage"""
+        assert len(data) <= int(CONFIG["BLOCKSIZE"])
         digest = hashlib.sha1()
         digest.update(data)
         checksum = digest.hexdigest()
         url = self.get_url(checksum)
         logging.debug("PUT %s", url)
-        res = requests.put(self.get_url(checksum), data=data)
+        res = self.session.put(self.get_url(checksum), data=data)
         if res.status_code in (200, 201):
             if res.status_code == 201:
                 logging.info("block existed, but rewritten")
@@ -53,7 +55,7 @@ class BlockStorageClient(WebAppClient):
         """get data defined by hexdigest from storage"""
         url = self.get_url(checksum)
         logging.debug("GET %s", url)
-        res = requests.get(self.get_url(checksum))
+        res = self.session.get(self.get_url(checksum))
         if res.status_code == 404:
             raise HTTP404("block with checksum %s does not exist" % checksum)
         return res.content
@@ -62,7 +64,7 @@ class BlockStorageClient(WebAppClient):
         """delete data defined by hexdigest from storage"""
         url = self.get_url(checksum)
         logging.debug("DELETE %s", url)
-        res = requests.delete(url)
+        res = self.session.delete(url)
         if res.status_code == 404:
             raise HTTP404("block with checksum %s does not exist" % checksum)
 
@@ -70,7 +72,7 @@ class BlockStorageClient(WebAppClient):
         """check if data defined by hexdigest exists"""
         url = self.get_url(checksum)
         logging.debug("OPTIONS %s", url)
-        res = requests.options(url)
+        res = self.session.options(url)
         if res.status_code == 200:
             return True
         return False
@@ -79,7 +81,7 @@ class BlockStorageClient(WebAppClient):
         """return all availabel data defined by hexdigest as list of hexdigests"""
         url = self.get_url()
         logging.debug("GET %s", url)
-        res = requests.get(url)
+        res = self.session.get(url)
         if res.status_code == 200:
             return res.json()
         raise HTTP404("webapplication delivered status %s" % res.status_code)
@@ -96,6 +98,7 @@ class FileStorageClient(WebAppClient):
         self.bs = BlockStorageClient()
         self.blocksize = int(CONFIG["BLOCKSIZE"])
         logging.debug("BLOCKSIZE: %s", self.blocksize)
+        self.session = requests.Session()
 
     def put(self, fh, mime_type="text/html"):
         """
@@ -120,7 +123,7 @@ class FileStorageClient(WebAppClient):
             checksum, status = self.bs.put(data)
             metadata["blockchain"].append(checksum)
         metadata["checksum"] = filehash.hexdigest()
-        res = requests.put(self.get_url(metadata["checksum"]), data=json.dumps(metadata))
+        res = self.session.put(self.get_url(metadata["checksum"]), data=json.dumps(metadata))
         if res.status_code in (200, 201):
             if res.status_code == 201:
                 logging.info("file for this checksum already existed")
@@ -145,7 +148,8 @@ class FileStorageClient(WebAppClient):
         filehash = hashlib.sha1()
         blockcount = 0
         existscount = 0
-        for data in iter(read_block, ""):
+        data = fh.read(self.blocksize)
+        while data:
             filehash.update(data)
             metadata["size"] += len(data)
             md5 = hashlib.sha1()
@@ -158,10 +162,11 @@ class FileStorageClient(WebAppClient):
             else:
                 metadata["blockchain"].append(md5.hexdigest())
                 existscount += 1
+            data = fh.read(self.blocksize)
         logging.debug("put %d blocks in BlockStorage, %d existed already", blockcount, existscount)
         metadata["checksum"] = filehash.hexdigest()
         logging.debug("storing recipe for filechecksum: %s", metadata["checksum"])
-        res = requests.put(self.get_url(metadata["checksum"]), data=json.dumps(metadata))
+        res = self.session.put(self.get_url(metadata["checksum"]), data=json.dumps(metadata))
         if res.status_code in (200, 201):
             if res.status_code == 201:
                 logging.debug("recipe for checksum %s exists already", metadata["checksum"])
@@ -176,7 +181,7 @@ class FileStorageClient(WebAppClient):
         """
         url = self.get_url(checksum)
         logging.debug("GET %s", url)
-        res = requests.get(url)
+        res = self.session.get(url)
         if res.status_code == 200:
             metadata = res.json()
             for block in metadata["blockchain"]:
@@ -191,7 +196,7 @@ class FileStorageClient(WebAppClient):
         """
         url = self.get_url(checksum)
         logging.debug("DELETE %s", url)
-        res = requests.delete(url)
+        res = self.session.delete(url)
         if res.status_code != 200:
             raise HTTP404("webapplication returned status %s" % res.status_code)
 
@@ -203,7 +208,7 @@ class FileStorageClient(WebAppClient):
         """
         url = self.get_url(checksum)
         logging.debug("GET %s", url)
-        res = requests.get(url)
+        res = self.session.get(url)
         if res.status_code == 200:
             return res.json()
         else:
@@ -215,7 +220,7 @@ class FileStorageClient(WebAppClient):
         """
         url = self.get_url()
         logging.debug("GET %s", url)
-        res = requests.get(url)
+        res = self.session.get(url)
         if res.status_code == 200:
             return res.json()
         else:
@@ -227,7 +232,7 @@ class FileStorageClient(WebAppClient):
         """
         url = self.get_url(checksum)
         logging.debug("OPTIONS %s", url)
-        res = requests.options(url)
+        res = self.session.options(url)
         if res.status_code == 200:
             return True
         if res.status_code == 404:
