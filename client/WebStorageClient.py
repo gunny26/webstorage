@@ -1,10 +1,13 @@
 #!/usr/bin/python3
+"""
+RestFUL Webclient to use FileStorage and BlockStorage WebApps
+"""
 import json
 import hashlib
 import logging
 import requests
 
-CONFIG={}
+CONFIG = {}
 for line in open("WebStorageClient.ini", "r"):
     key, value = line.strip().split("=")
     CONFIG[key] = value
@@ -25,7 +28,7 @@ class WebAppClient(object):
 
 
 class BlockStorageClient(WebAppClient):
-    """store chunks of data into blockstorage"""
+    """stores chunks of data into BlockStorage"""
 
     def __init__(self, url=None):
         if url is None:
@@ -90,6 +93,7 @@ class BlockStorageClient(WebAppClient):
 class FileStorageClient(WebAppClient):
     """
     put some arbitrary file like data object into BlockStorage and remember how to reassemble it
+    the recipe to reassemble will be stored in FileStorage
     """
 
     def __init__(self):

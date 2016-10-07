@@ -273,13 +273,13 @@ def main():
             logging.error("you have to provide -f/--file")
             sys.exit(1)
         else:
-            data = json.loads(gzip.open(args.file, "rb").read())
+            data = json.loads(str(gzip.open(args.file, "rt").read()))
             test(data)
     elif args.diff is True:
         if not os.path.isfile(args.file):
             logging.error("you have to provide -f/--file")
         else:
-            data = json.loads(gzip.open(args.file, "rb").read())
+            data = json.loads(str(gzip.open(args.file, "rt").read()))
             pprint.pprint(diff(data))
     elif args.extract is True:
         if not os.path.isdir(args.path[0]):
@@ -289,7 +289,7 @@ def main():
             logging.error("you have to provide -f/--file")
             sys.exit(1)
         else:
-            data = json.loads(gzip.open(args.file, "rb").read())
+            data = json.loads(str(gzip.open(args.file, "rt").read()))
             pprint.pprint(data)
             restore(data, args.path[0])
 
