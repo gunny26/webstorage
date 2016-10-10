@@ -145,21 +145,31 @@ def diff(data):
     for absfile in sorted(data["filedata"].keys()):
         filedata = data["filedata"][absfile]
         if not os.path.isfile(absfile):
-            logging.info("DELETED %s", ppls(absile, filedata))
+            logging.info("%8s %s", "DELETED", ppls(absile, filedata))
         else:
             st_mtime, st_atime, st_ctime, st_uid, st_gid, st_mode, st_size = filedata["stat"]
+            # check all except atime
             stat = os.stat(absfile)
-            if  (stat.st_mtime != st_mtime) or \
-                (stat.st_atime != st_atime) or \
-                (stat.st_ctime != st_ctime) or \
-                (stat.st_uid != st_uid) or \
-                (stat.st_gid != st_gid) or \
-                (stat.st_mode != st_mode) or \
-                (stat.st_size != st_size):
-                logging.info("CHANGE %s", ppls(absfile, filedata))
+            if  (stat.st_mtime != st_mtime):
+                logging.info("%8s %s", "MTIME", ppls(absfile, filedata))
+                difffiles.append(absfile)
+            elif (stat.st_ctime != st_ctime):
+                logging.info("%8s %s", "CTIME", ppls(absfile, filedata))
+                difffiles.append(absfile)
+            elif (stat.st_uid != st_uid):
+                logging.info("%8s %s", "UID", ppls(absfile, filedata))
+                difffiles.append(absfile)
+            elif (stat.st_gid != st_gid):
+                logging.info("%8s %s", "GID", ppls(absfile, filedata))
+                difffiles.append(absfile)
+            elif (stat.st_mode != st_mode):
+                logging.info("%8s %s", "MODE", ppls(absfile, filedata))
+                difffiles.append(absfile)
+            elif (stat.st_size != st_size):
+                logging.info("%8s %s", "SIZE", ppls(absfile, filedata))
                 difffiles.append(absfile)
             else:
-                logging.info("OK     %s", ppls(absfile, filedata))
+                logging.debug("%8s %s", "OK", ppls(absfile, filedata))
     # check for new files on local storage
     for root, dirs, files in os.walk(data["path"]):
         for filename in files:
@@ -167,7 +177,7 @@ def diff(data):
             if blacklist_match(data["blacklist"], absfilename):
                 continue
             if absfilename not in data["filedata"]:
-                logging.info("ADD   %s", absfilename)
+                logging.info("%8s %s", "ADD", absfilename)
                 difffiles.append(absfilename)
     return difffiles
 
@@ -273,14 +283,18 @@ def main():
             logging.error("you have to provide -f/--file")
             sys.exit(1)
         else:
-            data = json.loads(gzip.open(args.file, "rb").read())
+            data = json.loads(gzip.open(args.file, "rt").read())
             test(data)
     elif args.diff is True:
         if not os.path.isfile(args.file):
             logging.error("you have to provide -f/--file")
         else:
-            data = json.loads(gzip.open(args.file, "rb").read())
-            pprint.pprint(diff(data))
+            data = json.loads(gzip.open(args.file, "rt").read())
+            different_files = diff(data)
+            if len(different_files) == 0:
+                print("Nothing changed")
+            else:
+                pprint.pprint(different_files)
     elif args.extract is True:
         if not os.path.isdir(args.path[0]):
             logging.error("%s does not exist", args.create)
@@ -289,7 +303,7 @@ def main():
             logging.error("you have to provide -f/--file")
             sys.exit(1)
         else:
-            data = json.loads(gzip.open(args.file, "rb").read())
+            data = json.loads(gzip.open(args.file, "rt").read())
             pprint.pprint(data)
             restore(data, args.path[0])
 
