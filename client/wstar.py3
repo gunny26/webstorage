@@ -10,16 +10,17 @@ import socket
 import argparse
 import pprint
 import stat
+import re
 import logging
 logging.basicConfig(level=logging.INFO)
-#logging.getLogger("requests").setLevel(logging.WARNING)
-#logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 # own modules
 from WebStorageClient import FileStorageClient as FileStorageClient
 from WebStorageClient import HTTP404 as HTTP404
 
 BLOCKSIZE = 2 ** 20
-HASH_MINSIZE = 50 * BLOCKSIZE
+HASH_MINSIZE = 102400 * BLOCKSIZE
 
 def filemode(st_mode):
     """
@@ -43,7 +44,7 @@ def sizeof_fmt(num, suffix='B'):
     return "%.1f%s%s" % (num, 'Yi', suffix)
 
 def ppls(absfile, filedata):
-    """ 
+    """
     pritty print ls
     return long filename format, like ls -al does
     """
@@ -51,14 +52,27 @@ def ppls(absfile, filedata):
     datestring = datetime.datetime.fromtimestamp(int(st_mtime))
     return "%10s %s %s %10s %19s %s" % (filemode(st_mode), st_uid, st_gid, sizeof_fmt(st_size), datestring, absfile)
 
-def blacklist_match(blacklist, absfilename):
+def create_blacklist(absfilename):
     """
-    return True if any item in absfilename is in blacklist
+    generator for blacklist function
+
+    read exclude file and generate blacklist function
+    blacklist function returns True if filenae matches (re.match) any pattern
     """
-    for item in blacklist:
-        if item in absfilename:
-            return True
-    return False
+    patterns = []
+    logging.debug("reading exclude file")
+    with open(absfilename) as exclude_file:
+        for row in exclude_file:
+            operator = row.strip()[0]
+            pattern = row.strip()[2:]
+            logging.debug("%s %s", operator, pattern)
+            rex = re.compile(pattern)
+            if operator == "-":
+                patterns.append(rex.match)
+    def blacklist_func(filename):
+        logging.debug("matching %s", filename)
+        return any((func(filename) for func in patterns))
+    return blacklist_func
 
 def get_filechecksum(absfile):
     """
@@ -72,7 +86,7 @@ def get_filechecksum(absfile):
             data = fh.read(BLOCKSIZE)
     return filehash.hexdigest()
 
-def create(path, blacklist, outfile):
+def create(path, blacklist_func):
     """
     create a new archive of files under path
     filter out filepath which mathes some item in blacklist
@@ -82,7 +96,7 @@ def create(path, blacklist, outfile):
         "path" : path,
         "filedata" : {},
         "hashmap" : {},
-        "blacklist" : blacklist,
+        "blacklist" : None,
         "starttime" : time.time(),
         "stoptime" : None,
     }
@@ -91,8 +105,8 @@ def create(path, blacklist, outfile):
     for root, dirs, files in os.walk(path):
         for filename in files:
             absfilename = os.path.join(root, filename)
-            if blacklist_match(blacklist, absfilename):
-                logging.info("EXCLUDE %s", absfilename)
+            if blacklist_func(absfilename):
+                logging.debug("EXCLUDE %s", absfilename)
                 continue
             if not os.path.isfile(absfilename):
                 # only save regular files
@@ -134,12 +148,9 @@ def create(path, blacklist, outfile):
     archive_dict["totalcount"] = totalcount
     archive_dict["totalsize"] = totalsize
     archive_dict["stoptime"] = time.time()
-    outfile.write(json.dumps(archive_dict).encode("utf-8"))
-    logging.info("stored %d files of %s bytes size", totalcount, totalsize)
-    duration = archive_dict["stoptime"] - archive_dict["starttime"]
-    logging.info("duration %0.2f s, bandwith %0.2f kB/s", duration, totalsize / 1024 / duration)
+    return archive_dict
 
-def diff(data):
+def diff(data, blacklist_func):
     difffiles = []
     # check if some files are missing or have changed
     for absfile in sorted(data["filedata"].keys()):
@@ -174,7 +185,8 @@ def diff(data):
     for root, dirs, files in os.walk(data["path"]):
         for filename in files:
             absfilename = os.path.join(root, filename)
-            if blacklist_match(data["blacklist"], absfilename):
+            if blacklist_func(absfilename):
+                logging.debug("%8s %s", "EXCLUDE", absfilename)
                 continue
             if absfilename not in data["filedata"]:
                 logging.info("%8s %s", "ADD", absfilename)
@@ -249,64 +261,88 @@ def restore(backupdata, targetpath):
 
 def main():
     parser = argparse.ArgumentParser(description='create/manage/restore WebStorage Archives')
-    parser.add_argument("-c", '--create', action="store_true", help="create a new archive", required=False) 
-    parser.add_argument("-x", '--extract', action="store_true", help="restore content of file", required=False)
-    parser.add_argument("-t", '--test', action="store_true", help="shown onventory of archive", required=False)
-    parser.add_argument("-d", '--diff', action="store_true", help="show differences between local and given archive", required=False) 
-    parser.add_argument("-b", '--blacklist', default="blacklist.json", help="blacklist file in JSON Format", required=False)
+    parser.add_argument("-c", '--create', help="create a new archive", required=False)
+    parser.add_argument("--incremental", action="store_true", default=False, help="incremental backup only", required=False)
+    parser.add_argument("-x", '--extract', help="restore content of file", required=False)
+    parser.add_argument("-t", '--test', help="shown onventory of archive", required=False)
+    parser.add_argument("-d", '--diff', help="show differences between local and given archive", required=False)
+    parser.add_argument("-e", '--exclude-file', help="exclude file, rsync style", required=False)
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
-    parser.add_argument('-f', "--file", help="local output file", required=True)
-    parser.add_argument("path", metavar="N", type=str, nargs="+", help="path")
+    parser.add_argument('--list', help="list content of archive with sha1 checksums and filepath", required=False)
+    parser.add_argument("-p", "--path", help="path to extraxt/create/output", required=False)
     args = parser.parse_args()
-    basedir = "/wstar_%s" % socket.gethostname()
-    blacklist = json.load(open(args.blacklist, "r"))
+    # basedir = "%s_%s_%s.wstar.gz" % socket.gethostname()
     if args.quiet is True:
         logging.getLogger("").setLevel(logging.ERROR)
     if args.verbose is True:
         logging.getLogger("").setLevel(logging.DEBUG)
-    if args.create is True:
-        if os.path.isfile(args.file):
-            logging.error("output file %s already exists, delete it first", args.file)
+    # exclude file pattern of given
+    blacklist_func = None
+    if args.exclude_file is not None:
+        logging.info("using exclude file %s", args.exclude_file)
+        blacklist_func = create_blacklist(args.exclude_file)
+    else:
+        blacklist_func = lambda a: False
+    # check functions
+    if args.create is not None:
+        if os.path.isfile(args.create):
+            logging.error("output file %s already exists, delete it first", args.create)
             sys.exit(1)
         if not os.path.isdir(args.path[0]):
-            logging.error("%s does not exist", args.create)
+            logging.error("%s does not exist", args.path[0])
             sys.exit(1)
-        outfile = args.file
+        # create
         try:
-            create(args.path[0], blacklist, gzip.open(outfile, "wb"))
+            logging.info("archiving content of %s to %s", args.path, args.create)
+            archive_dict = create(args.path, blacklist_func)
+            outfile = gzip.open(args.create, "wb")
+            outfile.write(json.dumps(archive_dict).encode("utf-8"))
+            logging.info("stored %d files of %s bytes size", totalcount, totalsize)
+            duration = archive_dict["stoptime"] - archive_dict["starttime"]
+            logging.info("duration %0.2f s, bandwith %0.2f kB/s", duration, totalsize / 1024 / duration)
         except Exception as exc:
             logging.exception(exc)
-            os.unlink(outfile)
-    elif args.test is True:
-        if not os.path.isfile(args.file):
-            logging.error("you have to provide -f/--file")
+            os.unlink(args.create)
+    elif args.test is not None:
+        if not os.path.isfile(args.test):
+            logging.error("you have to provide a existing wstar file")
             sys.exit(1)
         else:
-            data = json.loads(gzip.open(args.file, "rt").read())
+            data = json.loads(gzip.open(args.test, "rt").read())
             test(data)
-    elif args.diff is True:
-        if not os.path.isfile(args.file):
-            logging.error("you have to provide -f/--file")
+    elif args.list is not None:
+        if not os.path.isfile(args.list):
+            logging.error("you have to provide a existing wstar file")
+            sys.exit(1)
         else:
-            data = json.loads(gzip.open(args.file, "rt").read())
-            different_files = diff(data)
+            data = json.loads(gzip.open(args.list, "rt").read())
+            for absfile in sorted(data["filedata"].keys()):
+                filedata = data["filedata"][absfile]
+                logging.info("%s %s", filedata["checksum"], absfile)
+    elif args.diff is not None:
+        if not os.path.isfile(args.diff):
+            logging.error("you have to provide a existing wstar file")
+        else:
+            data = json.loads(gzip.open(args.diff, "rt").read())
+            different_files = diff(data, blacklist_func)
             if len(different_files) == 0:
                 print("Nothing changed")
             else:
                 pprint.pprint(different_files)
-    elif args.extract is True:
-        if not os.path.isdir(args.path[0]):
+    elif args.extract is not None:
+        if not os.path.isdir(args.path):
             logging.error("%s does not exist", args.create)
             sys.exit(1)
-        if not os.path.isfile(args.file):
-            logging.error("you have to provide -f/--file")
+        if not os.path.isfile(args.extract):
+            logging.error("you have to provide a existing wstar file")
             sys.exit(1)
         else:
-            data = json.loads(gzip.open(args.file, "rt").read())
+            data = json.loads(gzip.open(args.extract, "rt").read())
             pprint.pprint(data)
             restore(data, args.path[0])
-
+    else:
+        logging.error("nice, you have started this program without any purpose?")
 
 if __name__ == "__main__":
     fs = FileStorageClient()
