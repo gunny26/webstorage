@@ -17,6 +17,7 @@ logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 # own modules
 from WebStorageClient import FileStorageClient as FileStorageClient
+from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import HTTP404 as HTTP404
 
 BLOCKSIZE = 2 ** 20
@@ -153,19 +154,28 @@ def create(path, blacklist_func):
     return archive_dict
 
 def diff(data, blacklist_func):
+    """
+    doing differential backup
+    criteriat to check if some is change will be the stats informations
+    there is a slight possiblity, that the file has change by checksum
+    """
     # check if some files are missing or have changed
+    changed = False
     data["starttime"] = time.time()
     for absfile in sorted(data["filedata"].keys()):
         filedata = data["filedata"][absfile]
         if not os.path.isfile(absfile):
-            logging.info("%8s %s", "DELETED", ppls(absile, filedata))
+            # remove informaion from data, if file was deleted
+            logging.info("%8s %s", "DELETED", ppls(absfile, filedata))
             del data["filedata"][absfile]
+            changed = True
         else:
             st_mtime, st_atime, st_ctime, st_uid, st_gid, st_mode, st_size = filedata["stat"]
             # check all except atime
             stat = os.stat(absfile)
             change = False
             metadata = None
+            # long version to print every single criteria
             if  (stat.st_mtime != st_mtime):
                 logging.info("%8s %s", "MTIME", ppls(absfile, filedata))
                 metadata = fs.put_fast(open(absfile, "rb"))
@@ -194,11 +204,13 @@ def diff(data, blacklist_func):
             if change is False:
                 logging.debug("%8s %s", "OK", ppls(absfile, filedata))
             else:
+                # update data
                 data["filedata"][absfile] = {
                     "checksum" : metadata["checksum"],
                     "stat" : (stat.st_mtime, stat.st_atime, stat.st_ctime, stat.st_uid, stat.st_gid, stat.st_mode, stat.st_size)
                 }
-    # check for new files on local storage
+                changed = True
+    # search for new files on local storage
     for root, dirs, files in os.walk(data["path"]):
         for filename in files:
             absfilename = os.path.join(root, filename)
@@ -206,23 +218,36 @@ def diff(data, blacklist_func):
                 logging.debug("%8s %s", "EXCLUDE", absfilename)
                 continue
             if absfilename not in data["filedata"]:
+                # there is some new file
                 logging.info("%8s %s", "ADD", absfilename)
-                stat = os.stat(absfilename)
-                metadata = fs.put_fast(open(absfilename, "rb"))
-                data["filedata"][absfilename] = {
-                    "checksum" : metadata["checksum"],
-                    "stat" : (stat.st_mtime, stat.st_atime, stat.st_ctime, stat.st_uid, stat.st_gid, stat.st_mode, stat.st_size)
-                }
+                try:
+                    stat = os.stat(absfilename)
+                    metadata = fs.put_fast(open(absfilename, "rb"))
+                    data["filedata"][absfilename] = {
+                        "checksum" : metadata["checksum"],
+                        "stat" : (stat.st_mtime, stat.st_atime, stat.st_ctime, stat.st_uid, stat.st_gid, stat.st_mode, stat.st_size)
+                    }
+                    changed = True
+                except OSError as exc:
+                    logging.error(exc)
+                except IOError as exc:
+                    logging.error(exc)
     data["stoptime"] = time.time()
     data["totalcount"] = len(data["filedata"])
     data["totalsize"] = sum((data["filedata"][absfilename]["stat"][-1] for absfilename in data["filedata"].keys()))
-    return data
+    return changed
 
-def check(data):
+def check(data, deep=False):
     """
     check backup archive for consistency
+    check if the filecheksum is available in FileStorage
+
+    if deep is True also every block will be checked
+        this operation could be very time consuming!
     """
-    difffiles = []
+    bs = None
+    if deep is True:
+        bs = BlockStorageClient()
     # check if some files are missing or have changed
     filecount = 0
     blockcount = 0
@@ -230,9 +255,14 @@ def check(data):
         logging.info("checking file with checksum %s", filedata["checksum"])
         metadata = fs.get(filedata["checksum"])
         filecount += 1
-        for block in metadata["blockchain"]:
-            logging.info("    checking block with checksum %s", block)
-            blockcount += 1
+        if deep is True:
+            logging.info("checking blocks in BlockStorage")
+            for block in metadata["blockchain"]:
+                if bs.exists(block) is True:
+                    logging.info("%s exists", block)
+                else:
+                    logging.error("%s block missing", block)
+                blockcount += 1
     logging.info("all files %d available, %d blocks used", filecount, blockcount)
 
 def test(data):
@@ -259,7 +289,8 @@ def test(data):
 
 def restore(backupdata, targetpath):
     """
-    check backup archive for consistency
+    restore all files of archive to targetpath
+    backuppath will be replaced by targetpath
     """
     difffiles = []
     # check if some files are missing or have changed
@@ -290,6 +321,8 @@ def main():
     parser.add_argument("--incremental", action="store_true", default=False, help="incremental backup only", required=False)
     parser.add_argument("-x", '--extract', help="restore content of file", required=False)
     parser.add_argument("-t", '--test', help="shown onventory of archive", required=False)
+    parser.add_argument('--verify', help="verify archive against Filestorage", required=False)
+    parser.add_argument('--verify-deep', action="store_true", default=False, help="verify also against BlockStorage", required=False)
     parser.add_argument("-d", '--diff', help="make differential backup to archive given", required=False)
     parser.add_argument("-e", '--exclude-file', help="exclude file, rsync style", required=False)
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
@@ -336,6 +369,16 @@ def main():
         else:
             data = json.loads(gzip.open(args.test, "rt").read())
             test(data)
+    elif args.verify is not None:
+        if not os.path.isfile(args.verify):
+            logging.error("you have to provide a existing wstar file")
+            sys.exit(1)
+        else:
+            data = json.loads(gzip.open(args.verify, "rt").read())
+            if args.verify_deep is True:
+                check(data, deep=True)
+            else:
+                check(data)
     elif args.list is not None:
         if not os.path.isfile(args.list):
             logging.error("you have to provide a existing wstar file")
@@ -350,15 +393,18 @@ def main():
             logging.error("you have to provide a existing wstar file")
         else:
             data = json.loads(gzip.open(args.diff, "rt").read())
-            archive_dict = diff(data, blacklist_func)
-            if archive_dict["filedata"] == data["filedata"]:
-                print("Nothing changed")
+            changed = diff(data, blacklist_func)
+            if changed is False:
+                logging.info("Nothing changed")
             else:
-                outfile = gzip.open(args.path, "wb")
-                outfile.write(json.dumps(archive_dict).encode("utf-8"))
-                logging.info("stored %(totalcount)d files of %(totalsize)s bytes size" % archive_dict)
-                duration = archive_dict["stoptime"] - archive_dict["starttime"]
-                logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(archive_dict["totalsize"] / duration))
+                if args.path is None:
+                    logging.error("you have to provide -p/--path to write new archive data to file")
+                else:
+                    outfile = gzip.open(args.path, "wb")
+                    outfile.write(json.dumps(data).encode("utf-8"))
+                    logging.info("stored %(totalcount)d files of %(totalsize)s bytes size" % data)
+                duration = data["stoptime"] - data["starttime"]
+                logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(data["totalsize"] / duration))
     elif args.extract is not None:
         if not os.path.isdir(args.path):
             logging.error("%s does not exist", args.create)
