@@ -257,7 +257,7 @@ def check(data, deep=False):
         logging.info("checking file with checksum %s", filedata["checksum"])
         metadata = fs.get(filedata["checksum"])
         filecount += 1
-        fileset.add(filedate["checksum"]
+        fileset.add(filedata["checksum"])
         if deep is True:
             logging.info("checking blocks in BlockStorage")
             for block in metadata["blockchain"]:
