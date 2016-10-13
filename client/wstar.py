@@ -250,20 +250,24 @@ def check(data, deep=False):
         bs = BlockStorageClient()
     # check if some files are missing or have changed
     filecount = 0
+    fileset = set()
     blockcount = 0
+    blockset = set()
     for absfile, filedata in data["filedata"].items():
         logging.info("checking file with checksum %s", filedata["checksum"])
         metadata = fs.get(filedata["checksum"])
         filecount += 1
+        fileset.add(filedate["checksum"]
         if deep is True:
             logging.info("checking blocks in BlockStorage")
             for block in metadata["blockchain"]:
+                blockset.add(block)
                 if bs.exists(block) is True:
                     logging.info("%s exists", block)
                 else:
                     logging.error("%s block missing", block)
                 blockcount += 1
-    logging.info("all files %d available, %d blocks used", filecount, blockcount)
+    logging.info("all files %d(%d) available, %d(%d) blocks used", filecount, len(fileset), blockcount, len(blockset))
 
 def test(data):
     """
