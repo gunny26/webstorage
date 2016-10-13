@@ -142,7 +142,7 @@ def create(path, blacklist_func):
                     archive_dict["hashmap"][filemeta_md5.hexdigest()].append(absfilename)
                 else:
                     archive_dict["hashmap"][filemeta_md5.hexdigest()] = [absfilename,]
-                logging.info("%8s %s", action_str,ppls(absfilename, archive_dict["filedata"][absfilename]))
+                logging.info("%8s %s", action_str, ppls(absfilename, archive_dict["filedata"][absfilename]))
             except OSError as exc:
                 logging.exception(exc)
             except IOError as exc:
@@ -153,36 +153,51 @@ def create(path, blacklist_func):
     return archive_dict
 
 def diff(data, blacklist_func):
-    difffiles = []
     # check if some files are missing or have changed
+    data["starttime"] = time.time()
     for absfile in sorted(data["filedata"].keys()):
         filedata = data["filedata"][absfile]
         if not os.path.isfile(absfile):
             logging.info("%8s %s", "DELETED", ppls(absile, filedata))
+            del data["filedata"][absfile]
         else:
             st_mtime, st_atime, st_ctime, st_uid, st_gid, st_mode, st_size = filedata["stat"]
             # check all except atime
             stat = os.stat(absfile)
+            change = False
+            metadata = None
             if  (stat.st_mtime != st_mtime):
                 logging.info("%8s %s", "MTIME", ppls(absfile, filedata))
-                difffiles.append(absfile)
+                metadata = fs.put_fast(open(absfile, "rb"))
+                change = True
             elif (stat.st_ctime != st_ctime):
                 logging.info("%8s %s", "CTIME", ppls(absfile, filedata))
-                difffiles.append(absfile)
+                metadata = fs.put_fast(open(absfile, "rb"))
+                change = True
             elif (stat.st_uid != st_uid):
                 logging.info("%8s %s", "UID", ppls(absfile, filedata))
-                difffiles.append(absfile)
+                metadata = fs.put_fast(open(absfile, "rb"))
+                change = True
             elif (stat.st_gid != st_gid):
                 logging.info("%8s %s", "GID", ppls(absfile, filedata))
-                difffiles.append(absfile)
+                metadata = fs.put_fast(open(absfile, "rb"))
+                change = True
             elif (stat.st_mode != st_mode):
                 logging.info("%8s %s", "MODE", ppls(absfile, filedata))
-                difffiles.append(absfile)
+                metadata = fs.put_fast(open(absfile, "rb"))
+                change = True
             elif (stat.st_size != st_size):
                 logging.info("%8s %s", "SIZE", ppls(absfile, filedata))
-                difffiles.append(absfile)
-            else:
+                metadata = fs.put_fast(open(absfile, "rb"))
+                change = True
+            # update data dictionary if something has changed
+            if change is False:
                 logging.debug("%8s %s", "OK", ppls(absfile, filedata))
+            else:
+                data["filedata"][absfile] = {
+                    "checksum" : metadata["checksum"],
+                    "stat" : (stat.st_mtime, stat.st_atime, stat.st_ctime, stat.st_uid, stat.st_gid, stat.st_mode, stat.st_size)
+                }
     # check for new files on local storage
     for root, dirs, files in os.walk(data["path"]):
         for filename in files:
@@ -192,8 +207,16 @@ def diff(data, blacklist_func):
                 continue
             if absfilename not in data["filedata"]:
                 logging.info("%8s %s", "ADD", absfilename)
-                difffiles.append(absfilename)
-    return difffiles
+                stat = os.stat(absfilename)
+                metadata = fs.put_fast(open(absfilename, "rb"))
+                data["filedata"][absfilename] = {
+                    "checksum" : metadata["checksum"],
+                    "stat" : (stat.st_mtime, stat.st_atime, stat.st_ctime, stat.st_uid, stat.st_gid, stat.st_mode, stat.st_size)
+                }
+    data["stoptime"] = time.time()
+    data["totalcount"] = len(data["filedata"])
+    data["totalsize"] = sum((data["filedata"][absfilename]["stat"][-1] for absfilename in data["filedata"].keys()))
+    return data
 
 def check(data):
     """
@@ -267,7 +290,7 @@ def main():
     parser.add_argument("--incremental", action="store_true", default=False, help="incremental backup only", required=False)
     parser.add_argument("-x", '--extract', help="restore content of file", required=False)
     parser.add_argument("-t", '--test', help="shown onventory of archive", required=False)
-    parser.add_argument("-d", '--diff', help="show differences between local and given archive", required=False)
+    parser.add_argument("-d", '--diff', help="make differential backup to archive given", required=False)
     parser.add_argument("-e", '--exclude-file', help="exclude file, rsync style", required=False)
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
@@ -300,8 +323,6 @@ def main():
             archive_dict = create(args.path, blacklist_func)
             outfile = gzip.open(args.create, "wb")
             outfile.write(json.dumps(archive_dict).encode("utf-8"))
-            totalcount = len(archive_dict["filedata"])
-            totalsize = sum((archive_dict["filedata"][absfilename]["stat"][-1] for absfilename in archive_dict["filedata"].keys()))
             logging.info("stored %(totalcount)d files of %(totalsize)s bytes size" % archive_dict)
             duration = archive_dict["stoptime"] - archive_dict["starttime"]
             logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(archive_dict["totalsize"] / duration))
@@ -329,11 +350,15 @@ def main():
             logging.error("you have to provide a existing wstar file")
         else:
             data = json.loads(gzip.open(args.diff, "rt").read())
-            different_files = diff(data, blacklist_func)
-            if len(different_files) == 0:
+            archive_dict = diff(data, blacklist_func)
+            if archive_dict["filedata"] == data["filedata"]:
                 print("Nothing changed")
             else:
-                pprint.pprint(different_files)
+                outfile = gzip.open(args.path, "wb")
+                outfile.write(json.dumps(archive_dict).encode("utf-8"))
+                logging.info("stored %(totalcount)d files of %(totalsize)s bytes size" % archive_dict)
+                duration = archive_dict["stoptime"] - archive_dict["starttime"]
+                logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(archive_dict["totalsize"] / duration))
     elif args.extract is not None:
         if not os.path.isdir(args.path):
             logging.error("%s does not exist", args.create)
