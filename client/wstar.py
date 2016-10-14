@@ -12,7 +12,7 @@ import pprint
 import stat
 import re
 import logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 # own modules
@@ -64,7 +64,6 @@ def create_blacklist(absfilename):
     logging.debug("reading exclude file")
     with open(absfilename) as exclude_file:
         for row in exclude_file:
-            print(len(row))
             if len(row) <= 1:
                 continue
             if row[0] == "#":
@@ -321,20 +320,19 @@ def restore(backupdata, targetpath):
 
 def main():
     parser = argparse.ArgumentParser(description='create/manage/restore WebStorage Archives')
-    parser.add_argument("-c", '--create', help="create a new archive", required=False)
-    parser.add_argument("--incremental", action="store_true", default=False, help="incremental backup only", required=False)
-    parser.add_argument("-x", '--extract', help="restore content of file", required=False)
-    parser.add_argument("-t", '--test', help="shown onventory of archive", required=False)
+    parser.add_argument("-c", '--create', help="create a new archive in file, from path -p", required=False)
+    parser.add_argument("-d", '--diff', help="create differential backup to archive given", required=False)
+    parser.add_argument("-e", '--exclude-file', help="exclude file, rsync style, in conjunction with -c/-d", required=False)
+    parser.add_argument("-x", '--extract', help="restore content of file to -p location", required=False)
+    parser.add_argument("-t", '--test', help="show inventory of archive, like ls", required=False)
+    parser.add_argument('--list', help="list content of archive with sha1 checksums and filepath, handy to grab single files with wscat", required=False)
     parser.add_argument('--verify', help="verify archive against Filestorage", required=False)
-    parser.add_argument('--verify-deep', action="store_true", default=False, help="verify also against BlockStorage", required=False)
-    parser.add_argument("-d", '--diff', help="make differential backup to archive given", required=False)
-    parser.add_argument("-e", '--exclude-file', help="exclude file, rsync style", required=False)
+    parser.add_argument('--verify-deep', action="store_true", default=False, help="in conjunction with --verify, verify also every Block against BlockStorage", required=False)
+    parser.add_argument("-p", "--path", help="path to extraxt/create/output", required=False)
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
-    parser.add_argument('--list', help="list content of archive with sha1 checksums and filepath", required=False)
-    parser.add_argument("-p", "--path", help="path to extraxt/create/output", required=False)
     args = parser.parse_args()
-    # basedir = "%s_%s_%s.wstar.gz" % socket.gethostname()
+    # set logging level
     if args.quiet is True:
         logging.getLogger("").setLevel(logging.ERROR)
     if args.verbose is True:
@@ -346,7 +344,7 @@ def main():
         blacklist_func = create_blacklist(args.exclude_file)
     else:
         blacklist_func = lambda a: False
-    # check functions
+    # CREATE new Archive
     if args.create is not None:
         if os.path.isfile(args.create):
             logging.error("output file %s already exists, delete it first", args.create)
@@ -366,6 +364,7 @@ def main():
         except Exception as exc:
             logging.exception(exc)
             os.unlink(args.create)
+    # list content or archive
     elif args.test is not None:
         if not os.path.isfile(args.test):
             logging.error("you have to provide a existing wstar file")
@@ -373,6 +372,7 @@ def main():
         else:
             data = json.loads(gzip.open(args.test, "rt").read())
             test(data)
+    # Verify and verify deep
     elif args.verify is not None:
         if not os.path.isfile(args.verify):
             logging.error("you have to provide a existing wstar file")
@@ -383,6 +383,7 @@ def main():
                 check(data, deep=True)
             else:
                 check(data)
+    # List content with SHA1 checksums
     elif args.list is not None:
         if not os.path.isfile(args.list):
             logging.error("you have to provide a existing wstar file")
@@ -392,6 +393,7 @@ def main():
             for absfile in sorted(data["filedata"].keys()):
                 filedata = data["filedata"][absfile]
                 logging.info("%s %s", filedata["checksum"], absfile)
+    # DIFFERENTIAL Backup
     elif args.diff is not None:
         if not os.path.isfile(args.diff):
             logging.error("you have to provide a existing wstar file")
@@ -409,6 +411,7 @@ def main():
                     logging.info("stored %(totalcount)d files of %(totalsize)s bytes size" % data)
                 duration = data["stoptime"] - data["starttime"]
                 logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(data["totalsize"] / duration))
+    # EXTRACT to path
     elif args.extract is not None:
         if not os.path.isdir(args.path):
             logging.error("%s does not exist", args.create)
