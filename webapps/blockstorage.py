@@ -5,7 +5,7 @@ import os
 import time
 import logging
 FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
-logging.basicConfig(level=logging.DEBUG, format=FORMAT)
+logging.basicConfig(level=logging.INFO, format=FORMAT)
 import hashlib
 import json
 
@@ -64,34 +64,6 @@ class BlockStorage(object):
         """
         return os.path.join(STORAGE_DIR, "%s.bin" % checksum)
 
-    def __get_rfc_filename(self, checksum):
-        """
-        build and return absolute filpath
-
-        params:
-        checksum <basestring>
-
-        ret:
-        <basestring>
-        """
-        return os.path.join(STORAGE_DIR, "%s.rfc" % checksum)
-
-    def __get_rfc(self, checksum):
-        """get reference counter"""
-        return int(open(self.__get_rfc_filename(checksum), "rb").read())
-
-    def __set_rfc(self, checksum, value):
-        """set reference counter to given value"""
-        open(self.__get_rfc_filename(checksum), "wb").write(str(value))
-
-    def __inc_rfc(self, checksum):
-        """increment reference counter by 1"""
-        self.__set_rfc(checksum, self.__get_rfc(checksum) + 1)
-
-    def __dec_rfc(self, checksum):
-        """decrement reference counter by 1"""
-        self.__set_rfc(checksum, self.__get_rfc(checksum) - 1)
-
     @calllogger
     def GET(self, path):
         """
@@ -107,13 +79,13 @@ class BlockStorage(object):
         else:
             args = path.split("/")
             # get data behaviour
-            md5 = args[0]
-            if os.path.isfile(self.__get_filename(md5)):
+            checksum = args[0]
+            if os.path.isfile(self.__get_filename(checksum)):
                 # set to octet stream, binary data
                 web.header('Content-Type', 'application/octet-stream')
-                return open(self.__get_filename(md5), "rb").read()
+                return open(self.__get_filename(checksum), "rb").read()
             else:
-                logging.error("File %s does not exist", self.__get_filename(md5))
+                logging.error("File %s does not exist", self.__get_filename(checksum))
                 web.notfound()
 
     @calllogger
@@ -129,22 +101,22 @@ class BlockStorage(object):
         returns checksum of stored data
         """
         data = web.data()
+        if len(data) > CONFIG["MAXSIZE"]:
+            web.ctx.status = '501 data too long'
+            return
         if len(data) > 0:
-            digest = hashlib.md5()
+            digest = hashlib.sha1()
             digest.update(data)
-            md5 = digest.hexdigest()
-            if not os.path.isfile(self.__get_filename(md5)):
-                filename = self.__get_filename(md5)
+            checksum = digest.hexdigest()
+            if not os.path.isfile(self.__get_filename(checksum)):
+                filename = self.__get_filename(checksum)
                 fo = open(filename, "wb")
                 fo.write(data)
                 fo.close()
-                self.__set_rfc(md5, 1)
             else:
-                web.ctx.status = '201 block rewritten'
-                logging.info("block %s already exists", self.__get_filename(md5))
-                filename = self.__get_filename(md5)
-                self.__inc_rfc(md5)
-            return digest.hexdigest()
+                web.ctx.status = '201 exists, not written'
+                logging.info("block %s already exists", self.__get_filename(checksum))
+            return checksum
         else:
             web.ctx.status = '501 no data to store'
 
@@ -159,11 +131,9 @@ class BlockStorage(object):
 
         either raise 404
         """
-        md5 = path.split("/")[0]
-        if not os.path.exists(self.__get_filename(md5)):
+        checksum = path.split("/")[0]
+        if not os.path.exists(self.__get_filename(checksum)):
             web.notfound()
-        else:
-            return self.__get_rfc(md5)
 
     @calllogger
     def DELETE(self, path):
@@ -174,18 +144,12 @@ class BlockStorage(object):
         returns 200 if this checksum exists
         returns refcounter in data segment left
         """
-        md5 = path.split("/")[0]
-        if os.path.exists(self.__get_filename(md5)):
-            rfc = self.__get_rfc(checksum) - 1
-            if rfc > 0:
-                self.__set_rfc(checksum, rfc)
-                web.ctx.status = '201 refcounter decreased to %d' % rfc
-                return rfc
-            else:
-                filename = self.__get_filename(md5)
-                os.unlink(self.__get_filename(md5))
-                os.unlink(self.__get_rfc_filename(md5))
-                web.ctx.status = '200 block deleted'
+        checksum = path.split("/")[0]
+        if os.path.exists(self.__get_filename(checksum)):
+            filename = self.__get_filename(checksum)
+            os.unlink(self.__get_filename(checksum))
+            os.unlink(self.__get_rfc_filename(checksum))
+            web.ctx.status = '200 block deleted'
         else:
             web.notfound()
 

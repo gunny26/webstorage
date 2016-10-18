@@ -53,32 +53,8 @@ class FileStorage(object):
     def __get_filename(self, checksum):
         return os.path.join(STORAGE_DIR, "%s.json" % checksum)
 
+    @calllogger
     def GET(self, args):
-        params = args.split("/")
-        method = None
-        method_args = None
-        if len(params) == 1:
-            method = params[0]
-            method_args = ()
-        else:
-            method = params[0]
-            method_args = params[1:]
-        logging.debug("calling method %s", method)
-        data = web.data()
-        if method == "get":
-            return self.get(method_args, data)
-        elif method == "exists":
-            return self.exists(method_args, data)
-        elif method == "put":
-            return self.put(method_args, data)
-        elif method == "ls":
-            return self.ls(method_args, data)
-        elif method == "delete":
-            return self.delete(method_args, data)
-        logging.info("detected unknown method call %s", method)
-        web.notfound()
-
-    def get(self, args, data):
         """
 	get block stored in blockstorage directory with hash
 
@@ -86,39 +62,41 @@ class FileStorage(object):
         BAD  : 404 : not found
         UGLY : decorator
         """
-        md5 = args[0]
-        if os.path.isfile(self.__get_filename(md5)):
+        if len(args) == 0:
+            # no checksum given, do ls style
             web.header('Content-Type', 'application/json')
-            return open(self.__get_filename(md5), "rb").read()
+            return json.dumps([filename[:-5] for filename in os.listdir(STORAGE_DIR)])
         else:
-            logging.error("File %s does not exist", self.__get_filename(md5))
-            web.notfound()
+            checksum = args.split("/")[0]
+            if os.path.isfile(self.__get_filename(checksum)):
+                web.header('Content-Type', 'application/json')
+                return open(self.__get_filename(checksum), "rb").read()
+            else:
+                logging.error("File %s does not exist", self.__get_filename(checksum))
+                web.notfound()
 
-    def ls(self, args, data):
+    @calllogger
+    def OPTIONS(self, args):
         """
-	get block stored in blockstorage directory with hash
-
-        GOOD : 200 returns json encoded directory listing
-        BAD  : this should not be possible
-        UGLY : decortator
-        """
-        web.header('Content-Type', 'application/json')
-        return json.dumps([filename[:-5] for filename in os.listdir(STORAGE_DIR)])
-
-    def exists(self, args, data):
-        """
-        check if block with digest exists
+        check if recipre with given checksum exists
 
         GOOD : 200 if file exists
         BAD  : 404 not found
         UGLY : decorator
         """
-        md5 = args[0]
-        if not os.path.isfile(self.__get_filename(md5)):
+        data = web.data()
+        checksum = args.split("/")[0]
+        if not os.path.isfile(self.__get_filename(checksum)):
             web.notfound()
 
-    def put(self, args, data):
+    @calllogger
+    def PUT(self, args):
         """
+        INSERT if not existing, compare if exists but do not overwrite
+        put some arbitraty recipe in Store
+        recipe is used to reassemble a file from its stored chunkes in BlockStorage
+
+        the name of the recipe is the sha1 checksum of the reassembled file
         put data into storag
 
         GOOD : 200 storing metadata in file
@@ -126,27 +104,30 @@ class FileStorage(object):
         BAD  : 404 if file not found
         UGLY : decorator or if no data is given
         """
-        md5 = args[0]
+        params = args.split("/")
+        checksum = params[0]
+        logging.error("PUT recipe for file with checksum %s", checksum)
         metadata = json.loads(web.data())
 	try:
-            assert metadata["checksum"] == md5
+            assert metadata["checksum"] == checksum
 	except AssertionError as exc:
-            logging.error("metadata: %s, md5: %s", metadata, md5)
+            logging.error("metadata: %s, checksum: %s", metadata, checksum)
             raise exc
 	except TypeError as exc:
-            logging.error("metadata: %s, md5: %s", metadata, md5)
+            logging.error("metadata: %s, checksum: %s", metadata, checksum)
             raise exc
         if metadata is not None:
-            if not os.path.isfile(self.__get_filename(md5)):
+            if not os.path.isfile(self.__get_filename(checksum)):
                 try:
-                    json.dump(metadata, open(self.__get_filename(md5), "wb"))
+                    json.dump(metadata, open(self.__get_filename(checksum), "wb"))
                 except TypeError:
-                    os.unlink(self.__get_filename(md5))
+                    os.unlink(self.__get_filename(checksum))
             else:
-                existing = json.load(open(self.__get_filename(md5), "rb"))
+                # there is already a file, check if this is the same
+                existing = json.load(open(self.__get_filename(checksum), "rb"))
                 try:
                     assert existing == metadata
-                    logging.debug("Metadata for %s already stored", md5)
+                    logging.debug("Metadata for %s already stored", checksum)
                     web.ctx.status = '201 metadata existed'
                 except AssertionError as exc:
                     logging.exception(exc)
@@ -155,9 +136,46 @@ class FileStorage(object):
         else:
             web.notfound()
 
-    def delete(self, args, data):
+    @calllogger
+    def POST(self, args):
         """
-        delete block with md5checksum given
+        INSERT and overwrite existing data
+
+        put some arbitraty recipe in Store
+        recipe is used to reassemble a file from its stored chunkes in BlockStorage
+
+        the name of the recipe is the sha1 checksum of the reassembled file
+        put data into storag
+
+        GOOD : 200 storing metadata in file
+               201 if file already existed
+        BAD  : 404 if file not found
+        UGLY : decorator or if no data is given
+        """
+        params = args.split("/")
+        checksum = params[0]
+        logging.error("PUT recipe for file with checksum %s", checksum)
+        metadata = json.loads(web.data())
+	try:
+            assert metadata["checksum"] == checksum
+	except AssertionError as exc:
+            logging.error("metadata: %s, checksum: %s", metadata, checksum)
+            raise exc
+	except TypeError as exc:
+            logging.error("metadata: %s, checksum: %s", metadata, checksum)
+            raise exc
+        if metadata is not None:
+            try:
+                json.dump(metadata, open(self.__get_filename(checksum), "wb"))
+            except TypeError:
+                os.unlink(self.__get_filename(checksum))
+        else:
+            web.notfound()
+
+    @calllogger
+    def DELETE(self, args):
+        """
+        delete block with checksum given
 
         the block should only be deleted if not used anymore in any FileStorage
 
@@ -165,10 +183,10 @@ class FileStorage(object):
         BAD  : 404 file not found
         UGLY : decorator
         """
-        md5 = args[0]
-        logging.debug("DELETE called, md5=%s", md5)
-        if os.path.isfile(self.__get_filename(md5)):
-            os.unlink(self.__get_filename(md5))
+        checksum = args.split("/")[0]
+        logging.debug("DELETE called, checksum=%s", checksum)
+        if os.path.isfile(self.__get_filename(checksum)):
+            os.unlink(self.__get_filename(checksum))
         else:
             web.notfound()
 
