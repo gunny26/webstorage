@@ -124,19 +124,29 @@ def create(path, blacklist_func):
                 filemeta_md5.update(str(stat).encode("utf-8"))
                 # if size is below HASH_MINSIZE, calculate file checksum,
                 # then check if this file is already stored
-                metadata = None
+                checksum = None
                 if size < HASH_MINSIZE:
+                    # calculate checksum localy, and test if this checksum already exists
                     checksum = get_filechecksum(absfilename)
-                    try:
-                        metadata = fs.get(checksum)
+                    if fs.exists(checksum):
                         action_str = "DEDUP"
-                    except HTTP404:
+                    else:
+                        # it does not exists, put it up to Filestorage
                         metadata = fs.put_fast(open(absfilename, "rb"))
+                        try:
+                            assert metadata["checksum"] == checksum
+                        except AssertionError as exc:
+                            logging.error(exc)
+                            logging.error("checksum mismatch at file %s", absfilename)
+                            logging.error("locally calculated sha1 checksum: %s", checksum)
+                            logging.error("remote  calculated sha1 checksum: %s", metadata["checksum"])
+                            raise exc
                 else:
                     action_str = "PUT"
                     metadata = fs.put_fast(open(absfilename, "rb"))
+                    checksum = metadata["checksum"]
                 archive_dict["filedata"][absfilename] = {
-                    "checksum" : metadata["checksum"],
+                    "checksum" : checksum,
                     "stat" : (stat.st_mtime, stat.st_atime, stat.st_ctime, stat.st_uid, stat.st_gid, stat.st_mode, stat.st_size)
                 }
                 if filemeta_md5.hexdigest() in archive_dict["hashmap"]:
@@ -325,7 +335,7 @@ def save_archive(data, path, filename=None):
     """
     if filename is None:
         # generate auto filename
-        filename = "%s_%s_%s.wstar.gz" % (socket.gethostname, os.path.basename(path), int(time.time()))
+        filename = "%s_%s_%s.wstar.gz" % (socket.gethostname(), os.path.basename(path), int(time.time()))
     outfile = gzip.open(filename, "wb")
     outfile.write(json.dumps(data).encode("utf-8"))
     outfile.flush()
@@ -448,6 +458,6 @@ def main():
         logging.error("nice, you have started this program without any purpose?")
 
 if __name__ == "__main__":
-    fs = FileStorageClient()
+    fs = FileStorageClient(cache=True)
     main()
 

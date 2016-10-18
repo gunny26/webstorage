@@ -106,6 +106,7 @@ class FileStorageClient(WebAppClient):
         # checksum cache
         self.__cache_checksums = set()
         if cache is True:
+            logging.info("Getting list of stored checksums from FileStorageBackend, this could take some time")
             self.__init_cache_checksums()
 
     def put(self, fh, mime_type="text/html"):
