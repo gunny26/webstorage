@@ -340,6 +340,8 @@ def save_archive(data, path, filename=None):
     outfile.write(json.dumps(data).encode("utf-8"))
     outfile.flush()
     outfile.close()
+    client = boto3.client("s3")
+    client.upload_file(filename, "op226", "webstorage/%s" % filename)
 
 
 def main():
