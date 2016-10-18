@@ -13,11 +13,11 @@ if __name__ == "__main__":
     bs = BlockStorageClient(None)
     fs = FileStorageClient(None, bs, BLOCKSIZE)
     fi = FileIndexClient(None)
-    if not fi.isdir("test"):
-        fi.mkdir("test")
-    if fi.isfile(sys.argv[1]) is True:
-        print "file %s already exists" % sys.argv[1]
-        sys.exit(1)
+    #if not fi.isdir("test"):
+    #    fi.mkdir("test")
+    #if fi.isfile(sys.argv[1]) is True:
+    #    print "file %s already exists" % sys.argv[1]
+    #    sys.exit(1)
     starttime = time.time()
     metadata = fs.put_fast(sys.stdin)
     duration = time.time() - starttime

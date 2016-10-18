@@ -13,7 +13,7 @@ from WebStorageClient import FileIndexClient as FileIndexClient
 
 
 if __name__ == "__main__":
-    BLOCKSIZE = 1024 * 1024
+    BLOCKSIZE = 2 ^ 20
     bs = BlockStorageClient(None)
     for checksum in bs.ls():
         assert bs.exists(checksum)
