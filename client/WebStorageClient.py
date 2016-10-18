@@ -96,13 +96,17 @@ class FileStorageClient(WebAppClient):
     the recipe to reassemble will be stored in FileStorage
     """
 
-    def __init__(self):
+    def __init__(self, cache=False):
         self.url = CONFIG["URL_FILESTORAGE"]
         logging.debug("URL: %s", self.url)
         self.bs = BlockStorageClient()
         self.blocksize = int(CONFIG["BLOCKSIZE"])
         logging.debug("BLOCKSIZE: %s", self.blocksize)
         self.session = requests.Session()
+        # checksum cache
+        self.__cache_checksums = set()
+        if cache is True:
+            self.__init_cache_checksums()
 
     def put(self, fh, mime_type="text/html"):
         """
@@ -230,9 +234,9 @@ class FileStorageClient(WebAppClient):
         else:
             raise HTTP404("webapplication returned status %s" % res.status_code)
 
-    def exists(self, checksum):
+    def exists_nocache(self, checksum):
         """
-        check if file defined by hexdigest is already stored
+        check if file defined by checksum is already stored
         """
         url = self.get_url(checksum)
         logging.debug("OPTIONS %s", url)
@@ -242,3 +246,27 @@ class FileStorageClient(WebAppClient):
         if res.status_code == 404:
             return False
         raise HTTP404("webapplication returned status %s" % res.status_code)
+
+    def exists(self, checksum):
+        """
+        exists method if caching is on
+        if the searched checksum is not available, the filestorage backend is queried
+        """
+        if checksum in self.__cache_checksums:
+            return True
+        else:
+            if self.exists_nocache(checksum):
+                self.__cache_checksums.add(checksum)
+                return True
+            else:
+                return False
+
+    def __init_cache_checksums(self):
+        url = self.get_url()
+        logging.debug("GET %s", url)
+        res = self.session.get(url)
+        if res.status_code == 200:
+            self.__cache_checksums = set(res.json())
+        else:
+            logging.error("Failure to get stored checksum from FileStorage Backend, status %s", res.status_code)
+ 

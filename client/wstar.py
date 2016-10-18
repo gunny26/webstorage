@@ -11,6 +11,7 @@ import argparse
 import pprint
 import stat
 import re
+import boto3
 import logging
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 logging.getLogger("requests").setLevel(logging.WARNING)
@@ -317,6 +318,19 @@ def restore(backupdata, targetpath):
         except OSError as exc:
             logging.exception(exc)
 
+def save_archive(data, path, filename=None):
+    """
+    save resulting archive data to some kind of storage
+    file://, s3:// something else
+    """
+    if filename is None:
+        # generate auto filename
+        filename = "%s_%s_%s.wstar.gz" % (socket.gethostname, os.path.basename(path), int(time.time()))
+    outfile = gzip.open(filename, "wb")
+    outfile.write(json.dumps(data).encode("utf-8"))
+    outfile.flush()
+    outfile.close()
+
 
 def main():
     parser = argparse.ArgumentParser(description='create/manage/restore WebStorage Archives')
@@ -329,6 +343,7 @@ def main():
     parser.add_argument('--verify', help="verify archive against Filestorage", required=False)
     parser.add_argument('--verify-deep', action="store_true", default=False, help="in conjunction with --verify, verify also every Block against BlockStorage", required=False)
     parser.add_argument("-p", "--path", help="path to extraxt/create/output", required=False)
+    parser.add_argument('--tag', default="backup", help="optional string to implement in auto generated archive filename")
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
     args = parser.parse_args()
@@ -356,8 +371,13 @@ def main():
         try:
             logging.info("archiving content of %s to %s", args.path, args.create)
             archive_dict = create(args.path, blacklist_func)
-            outfile = gzip.open(args.create, "wb")
-            outfile.write(json.dumps(archive_dict).encode("utf-8"))
+            save_archive(archive_dict, args.tag)
+            #outfile = gzip.open(args.create, "wb")
+            #outfile.write(json.dumps(archive_dict).encode("utf-8"))
+            #outfile.flush()
+            #outfile.close()
+            #s3_client = boto3.client("s3")
+            #s3_client.upload_file(args.create, "op226", "webstorage/%s" os.basename(args.create))
             logging.info("stored %(totalcount)d files of %(totalsize)s bytes size" % archive_dict)
             duration = archive_dict["stoptime"] - archive_dict["starttime"]
             logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(archive_dict["totalsize"] / duration))
@@ -406,8 +426,9 @@ def main():
                 if args.path is None:
                     logging.error("you have to provide -p/--path to write new archive data to file")
                 else:
-                    outfile = gzip.open(args.path, "wb")
-                    outfile.write(json.dumps(data).encode("utf-8"))
+                    save_archive(data, args.tag)
+                    #outfile = gzip.open(args.path, "wb")
+                    #outfile.write(json.dumps(data).encode("utf-8"))
                     logging.info("stored %(totalcount)d files of %(totalsize)s bytes size" % data)
                 duration = data["stoptime"] - data["starttime"]
                 logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(data["totalsize"] / duration))
