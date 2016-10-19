@@ -267,7 +267,7 @@ class FileStorageClient(WebAppClient):
         logging.debug("GET %s", url)
         res = self.session.get(url)
         if res.status_code == 200:
-            self.__cache_checksums = set(res.json())
+            self.__cache_checksums = set(res.json)
         else:
             logging.error("Failure to get stored checksum from FileStorage Backend, status %s", res.status_code)
  

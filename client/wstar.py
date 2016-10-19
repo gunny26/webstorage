@@ -21,7 +21,7 @@ from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import HTTP404 as HTTP404
 
 BLOCKSIZE = 2 ** 20
-HASH_MINSIZE = 102400 * BLOCKSIZE
+HASH_MINSIZE = 1024 * BLOCKSIZE
 
 def filemode(st_mode):
     """
@@ -91,7 +91,7 @@ def get_filechecksum(absfile):
             data = fh.read(BLOCKSIZE)
     return filehash.hexdigest()
 
-def create(path, blacklist_func):
+def create(fs, path, blacklist_func):
     """
     create a new archive of files under path
     filter out filepath which mathes some item in blacklist
@@ -162,7 +162,7 @@ def create(path, blacklist_func):
     archive_dict["totalsize"] = sum((archive_dict["filedata"][absfilename]["stat"][-1] for absfilename in archive_dict["filedata"].keys()))
     return archive_dict
 
-def diff(data, blacklist_func):
+def diff(fs, data, blacklist_func):
     """
     doing differential backup
     criteriat to check if some is change will be the stats informations
@@ -246,7 +246,7 @@ def diff(data, blacklist_func):
     data["totalsize"] = sum((data["filedata"][absfilename]["stat"][-1] for absfilename in data["filedata"].keys()))
     return changed
 
-def check(data, deep=False):
+def check(fs, data, deep=False):
     """
     check backup archive for consistency
     check if the filecheksum is available in FileStorage
@@ -278,29 +278,7 @@ def check(data, deep=False):
                 blockcount += 1
     logging.info("all files %d(%d) available, %d(%d) blocks used", filecount, len(fileset), blockcount, len(blockset))
 
-def test(data):
-    """
-    show archive content
-    """
-    difffiles = []
-    # check if some files are missing or have changed
-    filecount = 0
-    sizecount = 0
-    for absfile in sorted(data["filedata"].keys()):
-        filedata = data["filedata"][absfile]
-        logging.info(ppls(absfile, filedata))
-        # drwxrwxr-x 2 mesznera mesznera  4096 Okt  6 09:14 .
-        # drwxrwxr-x 5 mesznera mesznera  4096 Jun  7 11:59 ..
-        # -rw-rw-r-- 1 mesznera mesznera   129 Okt  5 16:06 blacklist.json
-        # -rw-rw-r-- 1 mesznera mesznera   129 Jun  7 11:59 blacklist.json.txt
-        st_mtime, st_atime, st_ctime, st_uid, st_gid, st_mode, st_size = filedata["stat"]
-        #datestring = datetime.datetime.fromtimestamp(int(st_mtime))
-        #logging.info("%10s %s %s %10s %19s %s", filemode(st_mode), st_uid, st_gid, sizeof_fmt(st_size), datestring, absfile)
-        filecount += 1
-        sizecount += st_size
-    logging.info("%d files, total size %s", filecount, sizeof_fmt(sizecount))
-
-def restore(backupdata, targetpath):
+def restore(fs, backupdata, targetpath):
     """
     restore all files of archive to targetpath
     backuppath will be replaced by targetpath
@@ -327,6 +305,28 @@ def restore(backupdata, targetpath):
         except OSError as exc:
             logging.exception(exc)
 
+def test(data):
+    """
+    show archive content
+    """
+    difffiles = []
+    # check if some files are missing or have changed
+    filecount = 0
+    sizecount = 0
+    for absfile in sorted(data["filedata"].keys()):
+        filedata = data["filedata"][absfile]
+        logging.info(ppls(absfile, filedata))
+        # drwxrwxr-x 2 mesznera mesznera  4096 Okt  6 09:14 .
+        # drwxrwxr-x 5 mesznera mesznera  4096 Jun  7 11:59 ..
+        # -rw-rw-r-- 1 mesznera mesznera   129 Okt  5 16:06 blacklist.json
+        # -rw-rw-r-- 1 mesznera mesznera   129 Jun  7 11:59 blacklist.json.txt
+        st_mtime, st_atime, st_ctime, st_uid, st_gid, st_mode, st_size = filedata["stat"]
+        #datestring = datetime.datetime.fromtimestamp(int(st_mtime))
+        #logging.info("%10s %s %s %10s %19s %s", filemode(st_mode), st_uid, st_gid, sizeof_fmt(st_size), datestring, absfile)
+        filecount += 1
+        sizecount += st_size
+    logging.info("%d files, total size %s", filecount, sizeof_fmt(sizecount))
+
 def get_filename(tag):
     return "%s_%s_%s.wstar.gz" % (socket.gethostname(), tag, datetime.datetime.today().isoformat())
 
@@ -351,8 +351,8 @@ def save_s3(data, absfilename, s3_bucket, s3_path):
 
 def main():
     parser = argparse.ArgumentParser(description='create/manage/restore WebStorage Archives')
-    parser.add_argument("-c", '--create', help="create a new archive in file, from path -p", required=False)
-    parser.add_argument("-d", '--diff', help="create differential backup to archive given", required=False)
+    parser.add_argument("-c", '--create', help="create archive of -p/--path to this path", required=False)
+    parser.add_argument("-d", '--diff', help="create differential to this archive", required=False)
     parser.add_argument("-e", '--exclude-file', help="exclude file, rsync style, in conjunction with -c/-d", required=False)
     parser.add_argument("-x", '--extract', help="restore content of file to -p location", required=False)
     parser.add_argument("-t", '--test', help="show inventory of archive, like ls", required=False)
@@ -364,6 +364,7 @@ def main():
     parser.add_argument('--s3', action="store_true", help="stor wstar archive also on amazon s3, you have to configure aws s3 credentials for this")
     parser.add_argument('--s3-bucket', help="S3 bucket to use")
     parser.add_argument('--s3-path', default="/", help="path in s3 bucket to use")
+    parser.add_argument('--cache', action="store_true", default=True, help="in caching mode, alls available FileStorage checksum will be preloaded from backend. consumes more memory")
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
     args = parser.parse_args()
@@ -372,6 +373,7 @@ def main():
         logging.getLogger("").setLevel(logging.ERROR)
     if args.verbose is True:
         logging.getLogger("").setLevel(logging.DEBUG)
+    fs = FileStorageClient(args.cache)
     # exclude file pattern of given
     blacklist_func = None
     if args.exclude_file is not None:
@@ -389,13 +391,13 @@ def main():
             sys.exit(1)
         # create
         try:
-            logging.info("archiving content of %s to %s", args.path, args.create)
-            archive_dict = create(args.path, blacklist_func)
+            filename = get_filename(args.tag)
+            absfilename = os.path.join(args.path, filename)
+            logging.info("archiving content of %s to %s", args.path, absfilename)
+            archive_dict = create(fs, args.path, blacklist_func)
             logging.info("%(totalcount)d files of %(totalsize)s bytes size" % archive_dict)
             duration = archive_dict["stoptime"] - archive_dict["starttime"]
             logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(archive_dict["totalsize"] / duration))
-            filename = get_filename(args.tag)
-            absfilename = os.path.join(args.path, filename)
             # store local
             save_archive(archive_dict, absfilename)
             # store in s3
@@ -403,7 +405,7 @@ def main():
                 save_s3(archive_dict, absfilename, args.s3_bucket, args.s3_path)
         except Exception as exc:
             logging.exception(exc)
-            os.unlink(args.create)
+            os.unlink(absfilename)
     # list content or archive
     elif args.test is not None:
         if not os.path.isfile(args.test):
@@ -420,9 +422,9 @@ def main():
         else:
             data = json.loads(gzip.open(args.verify, "rt").read())
             if args.verify_deep is True:
-                check(data, deep=True)
+                check(fs, data, deep=True)
             else:
-                check(data)
+                check(fs, data)
     # List content with SHA1 checksums
     elif args.list is not None:
         if not os.path.isfile(args.list):
@@ -439,7 +441,7 @@ def main():
             logging.error("you have to provide a existing wstar file")
         else:
             data = json.loads(gzip.open(args.diff, "rt").read())
-            changed = diff(data, blacklist_func)
+            changed = diff(fs, data, blacklist_func)
             if changed is False:
                 logging.info("Nothing changed")
             else:
@@ -466,11 +468,10 @@ def main():
         else:
             data = json.loads(gzip.open(args.extract, "rt").read())
             pprint.pprint(data)
-            restore(data, args.path[0])
+            restore(fs, data, args.path[0])
     else:
         logging.error("nice, you have started this program without any purpose?")
 
 if __name__ == "__main__":
-    fs = FileStorageClient(cache=True)
     main()
 
