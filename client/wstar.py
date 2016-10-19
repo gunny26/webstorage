@@ -11,7 +11,6 @@ import argparse
 import pprint
 import stat
 import re
-import boto3
 import logging
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 logging.getLogger("requests").setLevel(logging.WARNING)
@@ -328,20 +327,26 @@ def restore(backupdata, targetpath):
         except OSError as exc:
             logging.exception(exc)
 
-def save_archive(data, path, filename=None):
+def get_filename(tag):
+    return "%s_%s_%s.wstar.gz" % (socket.gethostname(), tag, datetime.datetime.today().isoformat())
+
+def save_archive(data, absfilename):
     """
     save resulting archive data to some kind of storage
     file://, s3:// something else
     """
-    if filename is None:
-        # generate auto filename
-        filename = "%s_%s_%s.wstar.gz" % (socket.gethostname(), os.path.basename(path), int(time.time()))
-    outfile = gzip.open(filename, "wb")
+    outfile = gzip.open(absfilename, "wb")
     outfile.write(json.dumps(data).encode("utf-8"))
     outfile.flush()
     outfile.close()
+
+def save_s3(data, absfilename, s3_bucket, s3_path):
+    """
+    store loacl file to s3 storage
+    """
+    import boto3
     client = boto3.client("s3")
-    client.upload_file(filename, "op226", "webstorage/%s" % filename)
+    client.upload_file(absfilename, s3_bucket, "%s/%s" % (s3_path, os.path.basename(absfilename)))
 
 
 def main():
@@ -356,6 +361,9 @@ def main():
     parser.add_argument('--verify-deep', action="store_true", default=False, help="in conjunction with --verify, verify also every Block against BlockStorage", required=False)
     parser.add_argument("-p", "--path", help="path to extraxt/create/output", required=False)
     parser.add_argument('--tag', default="backup", help="optional string to implement in auto generated archive filename")
+    parser.add_argument('--s3', action="store_true", help="stor wstar archive also on amazon s3, you have to configure aws s3 credentials for this")
+    parser.add_argument('--s3-bucket', help="S3 bucket to use")
+    parser.add_argument('--s3-path', default="/", help="path in s3 bucket to use")
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
     args = parser.parse_args()
@@ -383,16 +391,16 @@ def main():
         try:
             logging.info("archiving content of %s to %s", args.path, args.create)
             archive_dict = create(args.path, blacklist_func)
-            save_archive(archive_dict, args.tag)
-            #outfile = gzip.open(args.create, "wb")
-            #outfile.write(json.dumps(archive_dict).encode("utf-8"))
-            #outfile.flush()
-            #outfile.close()
-            #s3_client = boto3.client("s3")
-            #s3_client.upload_file(args.create, "op226", "webstorage/%s" os.basename(args.create))
-            logging.info("stored %(totalcount)d files of %(totalsize)s bytes size" % archive_dict)
+            logging.info("%(totalcount)d files of %(totalsize)s bytes size" % archive_dict)
             duration = archive_dict["stoptime"] - archive_dict["starttime"]
             logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(archive_dict["totalsize"] / duration))
+            filename = get_filename(args.tag)
+            absfilename = os.path.join(args.path, filename)
+            # store local
+            save_archive(archive_dict, absfilename)
+            # store in s3
+            if args.s3 is True:
+                save_s3(archive_dict, absfilename, args.s3_bucket, args.s3_path)
         except Exception as exc:
             logging.exception(exc)
             os.unlink(args.create)
@@ -435,15 +443,18 @@ def main():
             if changed is False:
                 logging.info("Nothing changed")
             else:
+                logging.info("%(totalcount)d files of %(totalsize)s bytes size" % data)
+                duration = data["stoptime"] - data["starttime"]
+                logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(data["totalsize"] / duration))
                 if args.path is None:
                     logging.error("you have to provide -p/--path to write new archive data to file")
                 else:
-                    save_archive(data, args.tag)
-                    #outfile = gzip.open(args.path, "wb")
-                    #outfile.write(json.dumps(data).encode("utf-8"))
-                    logging.info("stored %(totalcount)d files of %(totalsize)s bytes size" % data)
-                duration = data["stoptime"] - data["starttime"]
-                logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(data["totalsize"] / duration))
+                    filename = get_filename(args.tag)
+                    absfilename = os.path.join(args.path, filename)
+                    save_archive(data, absfilename)
+                    # store in s3
+                    if args.s3 is True:
+                        save_s3(archive_dict, absfilename, args.s3_bucket, args.s3_path)
     # EXTRACT to path
     elif args.extract is not None:
         if not os.path.isdir(args.path):
