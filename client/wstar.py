@@ -20,8 +20,7 @@ from WebStorageClient import FileStorageClient as FileStorageClient
 from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import HTTP404 as HTTP404
 
-BLOCKSIZE = 2 ** 20
-HASH_MINSIZE = 1024 * BLOCKSIZE
+#HASH_MINSIZE = 1024 * BLOCKSIZE
 
 def filemode(st_mode):
     """
@@ -83,12 +82,14 @@ def get_filechecksum(absfile):
     """
     return checksum of file
     """
+    # TODO get hashfunc from BlockStorage
+    blocksize = 2 ** 20 * 4
     filehash = hashlib.sha1()
     with open(absfile, "rb") as fh:
-        data = fh.read(BLOCKSIZE)
+        data = fh.read(blocksize)
         while data:
             filehash.update(data)
-            data = fh.read(BLOCKSIZE)
+            data = fh.read(blocksize)
     return filehash.hexdigest()
 
 def create(fs, path, blacklist_func):
@@ -124,26 +125,26 @@ def create(fs, path, blacklist_func):
                 # if size is below HASH_MINSIZE, calculate file checksum,
                 # then check if this file is already stored
                 checksum = None
-                if size < HASH_MINSIZE:
-                    # calculate checksum localy, and test if this checksum already exists
-                    checksum = get_filechecksum(absfilename)
-                    if fs.exists(checksum):
-                        action_str = "DEDUP"
-                    else:
-                        # it does not exists, put it up to Filestorage
-                        metadata = fs.put_fast(open(absfilename, "rb"))
-                        try:
-                            assert metadata["checksum"] == checksum
-                        except AssertionError as exc:
-                            logging.error(exc)
-                            logging.error("checksum mismatch at file %s", absfilename)
-                            logging.error("locally calculated sha1 checksum: %s", checksum)
-                            logging.error("remote  calculated sha1 checksum: %s", metadata["checksum"])
-                            raise exc
-                else:
-                    action_str = "PUT"
-                    metadata = fs.put_fast(open(absfilename, "rb"))
-                    checksum = metadata["checksum"]
+#                if size < HASH_MINSIZE:
+#                    # calculate checksum localy, and test if this checksum already exists
+#                    checksum = get_filechecksum(absfilename)
+#                    if fs.exists(checksum):
+#                        action_str = "DEDUP"
+#                    else:
+#                        # it does not exists, put it up to Filestorage
+#                        metadata = fs.put_fast(open(absfilename, "rb"))
+#                        try:
+#                            assert metadata["checksum"] == checksum
+#                        except AssertionError as exc:
+#                            logging.error(exc)
+#                            logging.error("checksum mismatch at file %s", absfilename)
+#                            logging.error("locally calculated sha1 checksum: %s", checksum)
+#                            logging.error("remote  calculated sha1 checksum: %s", metadata["checksum"])
+#                            raise exc
+#                else:
+                action_str = "PUT"
+                metadata = fs.put_fast(open(absfilename, "rb"))
+                checksum = metadata["checksum"]
                 archive_dict["filedata"][absfilename] = {
                     "checksum" : checksum,
                     "stat" : (stat.st_mtime, stat.st_atime, stat.st_ctime, stat.st_uid, stat.st_gid, stat.st_mode, stat.st_size)
