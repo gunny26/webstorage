@@ -1,16 +1,19 @@
 #!/usr/bin/python
-
+"""
+Webapp to store recipes for files chunked in blocks and stored in BlockStorage
+"""
 import web
 import os
 import time
 import logging
 FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
 logging.basicConfig(level=logging.DEBUG, format=FORMAT)
-import hashlib
 import json
 
-urls = ("/(.*)", "FileStorage",
-        )
+urls = (
+    "/info", "FileStorageInfo",
+    "/(.*)", "FileStorage",
+)
 
 # add wsgi functionality
 CONFIG = {}
@@ -21,25 +24,42 @@ STORAGE_DIR = CONFIG["STORAGE_DIR"]
 
 
 def calllogger(func):
-     """
-     decorator
-     """
-     def inner(*args, **kwds):
-         starttime = time.time()
-         call_str = "%s(%s, %s)" % (func.__name__, args[1:], kwds)
-         logging.debug("calling %s", call_str)
-         try:
-             ret_val = func(*args, **kwds)
-             logging.debug("duration of call %s : %s", call_str, (time.time() - starttime))
-             return ret_val
-         except StandardError as exc:
-             logging.exception(exc)
-             logging.error("call to %s caused StandardError", call_str)
-             web.internalerror()
-     # set inner function __name__ and __doc__ to original ones
-     inner.__name__ = func.__name__
-     inner.__doc__ = func.__doc__
-     return inner
+    """
+    decorator
+    """
+    def inner(*args, **kwds):
+        starttime = time.time()
+        call_str = "%s(%s, %s)" % (func.__name__, args[1:], kwds)
+        logging.debug("calling %s", call_str)
+        try:
+            ret_val = func(*args, **kwds)
+            logging.debug("duration of call %s : %s", call_str, (time.time() - starttime))
+            return ret_val
+        except StandardError as exc:
+            logging.exception(exc)
+            logging.error("call to %s caused StandardError", call_str)
+            web.internalerror()
+    # set inner function __name__ and __doc__ to original ones
+    inner.__name__ = func.__name__
+    inner.__doc__ = func.__doc__
+    return inner
+
+
+class FileStorageInfo(object):
+    """
+    return inforamtions about FileStorage
+    """
+
+    def GET(self):
+        """
+        get some statistical data from FileStorage
+        """
+        web.header("Content-Type", "application/json")
+        return json.dumps({
+            "files" : len(os.listdir(CONFIG["STORAGE_DIR"])),
+            "st_mtime" : os.stat(CONFIG["STORAGE_DIR"]).st_mtime,
+            "hashfunc" : CONFIG["HASHFUNC"],
+            })
 
 
 class FileStorage(object):
@@ -47,16 +67,21 @@ class FileStorage(object):
 
     def __init__(self):
         """__init__"""
-        if not os.path.exists(STORAGE_DIR):
+        if not os.path.exists(CONFIG["STORAGE_DIR"]):
+            logging.error("creating directory %s", CONFIG["STORAGE_DIR"])
             os.mkdir(STORAGE_DIR)
+        if CONFIG["HASHFUNC"] == "sha1":
+            self.maxlength = 40 # lenght of sha1 checksum
+        else:
+            raise StandardError("only sha1 checksums are implemented yet")
 
     def __get_filename(self, checksum):
-        return os.path.join(STORAGE_DIR, "%s.json" % checksum)
+        return os.path.join(CONFIG["STORAGE_DIR"], "%s.json" % checksum)
 
     @calllogger
     def GET(self, args):
         """
-	get block stored in blockstorage directory with hash
+        get block stored in blockstorage directory with hash
 
         GOOD : 200 : get metadata stored in file, json formatted
         BAD  : 404 : not found
@@ -68,6 +93,7 @@ class FileStorage(object):
             return json.dumps([filename[:-5] for filename in os.listdir(STORAGE_DIR)])
         else:
             checksum = args.split("/")[0]
+            assert len(checksum) == self.maxlength
             if os.path.isfile(self.__get_filename(checksum)):
                 web.header('Content-Type', 'application/json')
                 return open(self.__get_filename(checksum), "rb").read()
@@ -84,8 +110,8 @@ class FileStorage(object):
         BAD  : 404 not found
         UGLY : decorator
         """
-        data = web.data()
         checksum = args.split("/")[0]
+        assert len(checksum) == self.maxlength
         if not os.path.isfile(self.__get_filename(checksum)):
             web.notfound()
 
@@ -106,14 +132,15 @@ class FileStorage(object):
         """
         params = args.split("/")
         checksum = params[0]
+        assert len(checksum) == self.maxlength
         logging.error("PUT recipe for file with checksum %s", checksum)
         metadata = json.loads(web.data())
-	try:
+        try:
             assert metadata["checksum"] == checksum
-	except AssertionError as exc:
+        except AssertionError as exc:
             logging.error("metadata: %s, checksum: %s", metadata, checksum)
             raise exc
-	except TypeError as exc:
+        except TypeError as exc:
             logging.error("metadata: %s, checksum: %s", metadata, checksum)
             raise exc
         if metadata is not None:
@@ -154,14 +181,15 @@ class FileStorage(object):
         """
         params = args.split("/")
         checksum = params[0]
+        assert len(checksum) == self.maxlength
         logging.error("PUT recipe for file with checksum %s", checksum)
         metadata = json.loads(web.data())
-	try:
+        try:
             assert metadata["checksum"] == checksum
-	except AssertionError as exc:
+        except AssertionError as exc:
             logging.error("metadata: %s, checksum: %s", metadata, checksum)
             raise exc
-	except TypeError as exc:
+        except TypeError as exc:
             logging.error("metadata: %s, checksum: %s", metadata, checksum)
             raise exc
         if metadata is not None:
@@ -173,7 +201,7 @@ class FileStorage(object):
             web.notfound()
 
     @calllogger
-    def DELETE(self, args):
+    def NODELETE(self, args):
         """
         delete block with checksum given
 
@@ -184,6 +212,7 @@ class FileStorage(object):
         UGLY : decorator
         """
         checksum = args.split("/")[0]
+        assert len(checksum) == self.maxlength
         logging.debug("DELETE called, checksum=%s", checksum)
         if os.path.isfile(self.__get_filename(checksum)):
             os.unlink(self.__get_filename(checksum))
