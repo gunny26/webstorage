@@ -101,7 +101,7 @@ def create(fs, path, blacklist_func):
     archive_dict = {
         "path" : path,
         "filedata" : {},
-        "hashmap" : {},
+#        "hashmap" : {},
         "blacklist" : None,
         "starttime" : time.time(),
         "stoptime" : None,
@@ -119,12 +119,12 @@ def create(fs, path, blacklist_func):
             try:
                 size = os.path.getsize(absfilename)
                 stat = os.stat(absfilename)
-                filemeta_md5 = hashlib.md5()
-                filemeta_md5.update(absfilename.encode("utf-8"))
-                filemeta_md5.update(str(stat).encode("utf-8"))
+#                filemeta_md5 = hashlib.md5()
+#                filemeta_md5.update(absfilename.encode("utf-8"))
+#                filemeta_md5.update(str(stat).encode("utf-8"))
                 # if size is below HASH_MINSIZE, calculate file checksum,
                 # then check if this file is already stored
-                checksum = None
+#                checksum = None
 #                if size < HASH_MINSIZE:
 #                    # calculate checksum localy, and test if this checksum already exists
 #                    checksum = get_filechecksum(absfilename)
@@ -142,17 +142,24 @@ def create(fs, path, blacklist_func):
 #                            logging.error("remote  calculated sha1 checksum: %s", metadata["checksum"])
 #                            raise exc
 #                else:
-                action_str = "PUT"
+                action_str = None
                 metadata = fs.put_fast(open(absfilename, "rb"))
-                checksum = metadata["checksum"]
+                if metadata["filehash_exists"] is True:
+                    action_str = "FDEDUP"
+                else:
+                    if metadata["blockhash_exists"] > 0:
+                        action_str = "BDEDUP"
+                    else:
+                        action_str = "PUT"
+                metadata["checksum"]
                 archive_dict["filedata"][absfilename] = {
-                    "checksum" : checksum,
+                    "checksum" : metadata["checksum"],
                     "stat" : (stat.st_mtime, stat.st_atime, stat.st_ctime, stat.st_uid, stat.st_gid, stat.st_mode, stat.st_size)
                 }
-                if filemeta_md5.hexdigest() in archive_dict["hashmap"]:
-                    archive_dict["hashmap"][filemeta_md5.hexdigest()].append(absfilename)
-                else:
-                    archive_dict["hashmap"][filemeta_md5.hexdigest()] = [absfilename,]
+#                if filemeta_md5.hexdigest() in archive_dict["hashmap"]:
+#                    archive_dict["hashmap"][filemeta_md5.hexdigest()].append(absfilename)
+#                else:
+#                    archive_dict["hashmap"][filemeta_md5.hexdigest()] = [absfilename,]
                 logging.info("%8s %s", action_str, ppls(absfilename, archive_dict["filedata"][absfilename]))
             except OSError as exc:
                 logging.exception(exc)

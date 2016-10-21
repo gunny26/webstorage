@@ -206,49 +206,56 @@ class FileStorageClient(object):
 #            return metadata
 #        raise HTTP404("webapplication returned status %s" % res.status_code)
 
-    def put_fast(self, fh, mime_type="octet/stream"):
+    def put_fast(self, fh, mime_type="application/octet-stream"):
         """
         save data of fileobject in Blockstorage
-        data is chunked in self.blocksize pieces and sent to BlockStorage
 
-        if hexdigest of chunk exists in blockstorage, the data is not transfered
+        data is read in blocks
+        every block will be checksummed and tested if exists against
+        BlockStorage
+          if not existing, put it into BlockStorage
+        the whole file is also checksummed and tested against FileStorage
+          if not existing, put it into FileStorage
         """
         metadata = {
             "blockchain" : [],
             "size" : 0,
             "checksum" : None,
-            "mime_type" : mime_type
+            "mime_type" : mime_type,
+            "filehash_exists" : False, # indicate if the filehash already
+            "blockhash_exists" : 0, # how many blocks existed already
         }
         filehash = self.__hashfunc()
-        blockcount = 0
-        existscount = 0
+        # Block Checksums
         data = fh.read(self.__bs.blocksize)
         while data:
-            filehash.update(data)
             metadata["size"] += len(data)
-            md5 = self.__bs.hashfunc()
-            md5.update(data)
-            blockcount += 1
-            if not self.__bs.exists(md5.hexdigest()):
+            filehash.update(data)
+            blockhash = self.__bs.hashfunc()
+            blockhash.update(data)
+            if not self.__bs.exists(blockhash.hexdigest()):
                 checksum, status = self.__bs.put(data)
-                logging.debug("checksum: %s, status: %s", checksum, status)
-                metadata["blockchain"].append(checksum)
+                assert checksum == blockhash.hexdigest()
+                logging.debug("PUT blockcount: %d, checksum: %s, status: %s", len(metadata["blockchain"]), checksum, status)
             else:
-                metadata["blockchain"].append(md5.hexdigest())
-                existscount += 1
+                metadata["blockhash_exists"] += 1
+            metadata["blockchain"].append(blockhash.hexdigest())
             data = fh.read(self.__bs.blocksize)
-        logging.debug("put %d blocks in BlockStorage, %d existed already", blockcount, existscount)
+        logging.debug("put %d blocks in BlockStorage, %d existed already", len(metadata["blockchain"]), metadata["blockhash_exists"])
+        # File Checksum
         metadata["checksum"] = filehash.hexdigest()
         if self.exists(filehash.hexdigest()) is not True: # check if filehash is already stored
             logging.debug("storing recipe for filechecksum: %s", metadata["checksum"])
             res = self.__session.put(self.__get_url(metadata["checksum"]), data=json.dumps(metadata))
             if res.status_code in (200, 201):
-                if res.status_code == 201:
+                if res.status_code == 201: # could only be true at some rare race conditions
                     logging.debug("recipe for checksum %s exists already", metadata["checksum"])
+                    metadata["filehash_exists"] = True
                 return metadata
             raise HTTPError("webapplication returned status %s" % res.status_code)
         else:
             logging.debug("filehash %s already stored", filehash.hexdigest())
+            metadata["filehash_exists"] = True
             return metadata
 
     def read(self, checksum):
