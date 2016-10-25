@@ -181,7 +181,7 @@ def diff(fs, data, blacklist_func):
     data["starttime"] = time.time()
     for absfile in sorted(data["filedata"].keys()):
         filedata = data["filedata"][absfile]
-        if not os.path.isfile(absfile):
+        if os.path.isfile(absfile) is False:
             # remove informaion from data, if file was deleted
             logging.info("%8s %s", "DELETED", ppls(absfile, filedata))
             del data["filedata"][absfile]
@@ -191,36 +191,30 @@ def diff(fs, data, blacklist_func):
             # check all except atime
             stat = os.stat(absfile)
             change = False
-            metadata = None
             # long version to print every single criteria
             if  (stat.st_mtime != st_mtime):
                 logging.info("%8s %s", "MTIME", ppls(absfile, filedata))
-                metadata = fs.put_fast(open(absfile, "rb"))
                 change = True
             elif (stat.st_ctime != st_ctime):
                 logging.info("%8s %s", "CTIME", ppls(absfile, filedata))
-                metadata = fs.put_fast(open(absfile, "rb"))
                 change = True
             elif (stat.st_uid != st_uid):
                 logging.info("%8s %s", "UID", ppls(absfile, filedata))
-                metadata = fs.put_fast(open(absfile, "rb"))
                 change = True
             elif (stat.st_gid != st_gid):
                 logging.info("%8s %s", "GID", ppls(absfile, filedata))
-                metadata = fs.put_fast(open(absfile, "rb"))
                 change = True
             elif (stat.st_mode != st_mode):
                 logging.info("%8s %s", "MODE", ppls(absfile, filedata))
-                metadata = fs.put_fast(open(absfile, "rb"))
                 change = True
             elif (stat.st_size != st_size):
                 logging.info("%8s %s", "SIZE", ppls(absfile, filedata))
-                metadata = fs.put_fast(open(absfile, "rb"))
                 change = True
             # update data dictionary if something has changed
             if change is False:
                 logging.debug("%8s %s", "OK", ppls(absfile, filedata))
             else:
+                metadata = fs.put_fast(open(absfile, "rb"))
                 # update data
                 data["filedata"][absfile] = {
                     "checksum" : metadata["checksum"],
@@ -233,6 +227,9 @@ def diff(fs, data, blacklist_func):
             absfilename = os.path.join(root, filename)
             if blacklist_func(absfilename):
                 logging.debug("%8s %s", "EXCLUDE", absfilename)
+                continue
+            if os.path.isfile(absfilename) is False:
+                logging.debug("%8s %s", "NOFILE", absfilename)
                 continue
             if absfilename not in data["filedata"]:
                 # there is some new file
@@ -257,7 +254,7 @@ def diff(fs, data, blacklist_func):
 def check(fs, data, deep=False):
     """
     check backup archive for consistency
-    check if the filecheksum is available in FileStorage
+    check if the filechecksum is available in FileStorage
 
     if deep is True also every block will be checked
         this operation could be very time consuming!
@@ -381,7 +378,6 @@ def main():
         logging.getLogger("").setLevel(logging.ERROR)
     if args.verbose is True:
         logging.getLogger("").setLevel(logging.DEBUG)
-    fs = FileStorageClient(args.cache)
     # exclude file pattern of given
     blacklist_func = None
     if args.exclude_file is not None:
@@ -391,6 +387,8 @@ def main():
         blacklist_func = lambda a: False
     # CREATE new Archive
     if args.create is not None:
+        # caching works best while creating backups
+        fs = FileStorageClient(cache=args.cache)
         if os.path.isfile(args.create):
             logging.error("output file %s already exists, delete it first", args.create)
             sys.exit(1)
@@ -421,9 +419,11 @@ def main():
             sys.exit(1)
         else:
             data = json.loads(gzip.open(args.test, "rt").read())
-            test(data)
+            test(fs, data)
     # Verify and verify deep
     elif args.verify is not None:
+        # caching works best while creating backups
+        fs = FileStorageClient(cache=args.cache)
         if not os.path.isfile(args.verify):
             logging.error("you have to provide a existing wstar file")
             sys.exit(1)
@@ -445,6 +445,8 @@ def main():
                 logging.info("%s %s", filedata["checksum"], absfile)
     # DIFFERENTIAL Backup
     elif args.diff is not None:
+        # no caching
+        fs = FileStorageClient(cache=False)
         if not os.path.isfile(args.diff):
             logging.error("you have to provide a existing wstar file")
         else:
@@ -464,9 +466,11 @@ def main():
                     save_archive(data, absfilename)
                     # store in s3
                     if args.s3 is True:
-                        save_s3(archive_dict, absfilename, args.s3_bucket, args.s3_path)
+                        save_s3(data, absfilename, args.s3_bucket, args.s3_path)
     # EXTRACT to path
     elif args.extract is not None:
+        # no caching
+        fs = FileStorageClient(cache=False)
         if not os.path.isdir(args.path):
             logging.error("%s does not exist", args.create)
             sys.exit(1)

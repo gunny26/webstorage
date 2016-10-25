@@ -40,9 +40,9 @@ class BlockStorageClient(object):
         res = self.__session.get(self.__get_url("info"))
         # hack to be compatible with older requests versions
         try:
-            data = res.json
-        except TypeError:
             data = res.json()
+        except TypeError:
+            data = res.json
         self.__blocksize = int(data["blocksize"])
         if data["hashfunc"] == "sha1":
             self.__hashfunc = hashlib.sha1
@@ -138,9 +138,9 @@ class BlockStorageClient(object):
         if res.status_code == 200:
             # hack to work also on earlier versions of python 3
             try:
-                self.__cache_checksums = set(res.json)
-            except TypeError:
                 self.__cache_checksums = set(res.json())
+            except TypeError:
+                self.__cache_checksums = set(res.json)
         else:
             logging.error("Failure to get stored checksum from FileStorage Backend, status %s", res.status_code)
 
@@ -167,9 +167,9 @@ class FileStorageClient(object):
         res = self.__session.get(self.__get_url("info"))
         # hack to be compatible with older requests versions
         try:
-            data = res.json
-        except TypeError:
             data = res.json()
+        except TypeError:
+            data = res.json
         if data["hashfunc"] == "sha1":
             self.__hashfunc = hashlib.sha1
         else:
