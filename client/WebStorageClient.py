@@ -38,7 +38,11 @@ class BlockStorageClient(object):
         self.__session = requests.Session()
         # get info from backend
         res = self.__session.get(self.__get_url("info"))
-        data = res.json()
+        # hack to be compatible with older requests versions
+        try:
+            data = res.json
+        except TypeError:
+            data = res.json()
         self.__blocksize = int(data["blocksize"])
         if data["hashfunc"] == "sha1":
             self.__hashfunc = hashlib.sha1
@@ -161,7 +165,11 @@ class FileStorageClient(object):
         self.__session = requests.Session()
         # get info from backend
         res = self.__session.get(self.__get_url("info"))
-        data = res.json()
+        # hack to be compatible with older requests versions
+        try:
+            data = res.json
+        except TypeError:
+            data = res.json()
         if data["hashfunc"] == "sha1":
             self.__hashfunc = hashlib.sha1
         else:
