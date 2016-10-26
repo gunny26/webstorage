@@ -16,7 +16,7 @@ if __name__ == "__main__":
     size = 0
     starttime = time.time()
     for data in fs.read(sys.argv[1]):
-        sys.stdout.write(data)
+        sys.stdout.write(str(data))
         digest.update(data)
         size += len(data)
     duration = time.time() - starttime
