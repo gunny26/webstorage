@@ -16,6 +16,7 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 # own modules
+from S3Archive import *
 from WebStorageClient import FileStorageClient as FileStorageClient
 from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import HTTP404 as HTTP404
@@ -345,13 +346,13 @@ def save_archive(data, absfilename):
     outfile.flush()
     outfile.close()
 
-def save_s3(data, absfilename, s3_bucket, s3_path):
-    """
-    store loacl file to s3 storage
-    """
-    import boto3
-    client = boto3.client("s3")
-    client.upload_file(absfilename, s3_bucket, "%s/%s" % (s3_path, os.path.basename(absfilename)))
+#def save_s3(data, absfilename, s3_bucket, s3_path):
+#    """
+#    store loacl file to s3 storage
+#    """
+#    import boto3
+#    client = boto3.client("s3")
+#    client.upload_file(absfilename, s3_bucket, "%s/%s" % (s3_path, os.path.basename(absfilename)))
 
 
 def main():
@@ -408,7 +409,7 @@ def main():
             save_archive(archive_dict, absfilename)
             # store in s3
             if args.s3 is True:
-                save_s3(archive_dict, absfilename, args.s3_bucket, args.s3_path)
+                save_s3(archive_dict, filename, args.s3_bucket, args.s3_path)
         except Exception as exc:
             logging.exception(exc)
             os.unlink(absfilename)
@@ -466,7 +467,7 @@ def main():
                     save_archive(data, absfilename)
                     # store in s3
                     if args.s3 is True:
-                        save_s3(data, absfilename, args.s3_bucket, args.s3_path)
+                        save_s3(data, filename, args.s3_bucket, args.s3_path)
     # EXTRACT to path
     elif args.extract is not None:
         # no caching
