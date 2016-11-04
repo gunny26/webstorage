@@ -102,4 +102,4 @@ if __name__ == "__main__":
         print("%(date)10s %(time)8s %(size)s\t%(tag)s\t%(basename)s" % value)
     latest_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path, mytag="backup")
     data = get_s3_data(s3_bucket, latest_key)
-    pprint.pprint(data)
+    pprint.pprint(data.keys())
