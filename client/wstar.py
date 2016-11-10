@@ -107,6 +107,12 @@ def create(fs, path, blacklist_func):
         "starttime" : time.time(),
         "stoptime" : None,
     }
+    action_stat = {
+      "PUT" : 0,
+      "FDEDUP" : 0,
+      "BDEDUP" : 0,
+      "EXCLUDE" : 0,
+    }
     action_str = "PUT"
     for root, dirs, files in os.walk(path):
         for filename in files:
@@ -120,30 +126,6 @@ def create(fs, path, blacklist_func):
             try:
                 size = os.path.getsize(absfilename)
                 stat = os.stat(absfilename)
-#                filemeta_md5 = hashlib.md5()
-#                filemeta_md5.update(absfilename.encode("utf-8"))
-#                filemeta_md5.update(str(stat).encode("utf-8"))
-                # if size is below HASH_MINSIZE, calculate file checksum,
-                # then check if this file is already stored
-#                checksum = None
-#                if size < HASH_MINSIZE:
-#                    # calculate checksum localy, and test if this checksum already exists
-#                    checksum = get_filechecksum(absfilename)
-#                    if fs.exists(checksum):
-#                        action_str = "DEDUP"
-#                    else:
-#                        # it does not exists, put it up to Filestorage
-#                        metadata = fs.put_fast(open(absfilename, "rb"))
-#                        try:
-#                            assert metadata["checksum"] == checksum
-#                        except AssertionError as exc:
-#                            logging.error(exc)
-#                            logging.error("checksum mismatch at file %s", absfilename)
-#                            logging.error("locally calculated sha1 checksum: %s", checksum)
-#                            logging.error("remote  calculated sha1 checksum: %s", metadata["checksum"])
-#                            raise exc
-#                else:
-                action_str = None
                 metadata = fs.put_fast(open(absfilename, "rb"))
                 if metadata["filehash_exists"] is True:
                     action_str = "FDEDUP"
@@ -157,15 +139,17 @@ def create(fs, path, blacklist_func):
                     "checksum" : metadata["checksum"],
                     "stat" : (stat.st_mtime, stat.st_atime, stat.st_ctime, stat.st_uid, stat.st_gid, stat.st_mode, stat.st_size)
                 }
-#                if filemeta_md5.hexdigest() in archive_dict["hashmap"]:
-#                    archive_dict["hashmap"][filemeta_md5.hexdigest()].append(absfilename)
-#                else:
-#                    archive_dict["hashmap"][filemeta_md5.hexdigest()] = [absfilename,]
-                logging.info("%8s %s", action_str, ppls(absfilename, archive_dict["filedata"][absfilename]))
+                if action_str == "PUT":
+                    logging.error("%8s %s", action_str, ppls(absfilename, archive_dict["filedata"][absfilename]))
+                else:
+                    logging.info("%8s %s", action_str, ppls(absfilename, archive_dict["filedata"][absfilename]))
+                action_stat[action_str] += 1
             except OSError as exc:
                 logging.exception(exc)
             except IOError as exc:
                 logging.exception(exc)
+    for action, count in action_stat.items():
+        logging.info("%8s : %s", action, count)
     archive_dict["stoptime"] = time.time()
     archive_dict["totalcount"] = len(archive_dict["filedata"])
     archive_dict["totalsize"] = sum((archive_dict["filedata"][absfilename]["stat"][-1] for absfilename in archive_dict["filedata"].keys()))
@@ -252,7 +236,7 @@ def diff(fs, data, blacklist_func):
     data["totalsize"] = sum((data["filedata"][absfilename]["stat"][-1] for absfilename in data["filedata"].keys()))
     return changed
 
-def check(fs, data, deep=False):
+def test(fs, data, deep=False):
     """
     check backup archive for consistency
     check if the filechecksum is available in FileStorage
@@ -284,7 +268,7 @@ def check(fs, data, deep=False):
                 blockcount += 1
     logging.info("all files %d(%d) available, %d(%d) blocks used", filecount, len(fileset), blockcount, len(blockset))
 
-def restore(fs, backupdata, targetpath):
+def restore(fs, data, targetpath, overwrite=False):
     """
     restore all files of archive to targetpath
     backuppath will be replaced by targetpath
@@ -293,25 +277,38 @@ def restore(fs, backupdata, targetpath):
     # check if some files are missing or have changed
     filecount = 0
     blockcount = 0
-    for absfile, filedata in backupdata["filedata"].items():
+    if targetpath[-1] == "/":
+        targetpath = targetpath[:-1]
+    for absfile in sorted(data["filedata"].keys()):
+        filedata = data["filedata"][absfile]
         st_mtime, st_atime, st_ctime, st_uid, st_gid, st_mode, st_size = filedata["stat"]
-        newfilename = absfile.replace(backupdata["path"], targetpath)
-        logging.info("restoring %s", newfilename)
+        newfilename = absfile.replace(data["path"], targetpath)
+        # remove double slashes
         if not os.path.isdir(os.path.dirname(newfilename)):
-            logging.info("creating directory %s", os.path.dirname(newfilename))
+            logging.debug("creating directory %s", os.path.dirname(newfilename))
             os.makedirs(os.path.dirname(newfilename))
-        outfile = open(newfilename, "wb")
-        for data in fs.read(filedata["checksum"]):
-            outfile.write(data)
-        outfile.close()
+        if (os.path.isfile(newfilename)) and (overwrite is True):
+            logging.info("REPLACE %s", newfilename)
+            outfile = open(newfilename, "wb")
+            for block in fs.read(filedata["checksum"]):
+              outfile.write(block)
+            outfile.close()
+        elif (os.path.isfile(newfilename)) and (overwrite is False):
+            logging.info("SKIPPING %s", newfilename)
+        else:
+            logging.info("RESTORE %s", newfilename)
+            outfile = open(newfilename, "wb")
+            for block in fs.read(filedata["checksum"]):
+              outfile.write(block)
+            outfile.close()
         try:
             os.chmod(newfilename, st_mode)
             os.utime(newfilename, (st_atime, st_mtime))
             os.chown(newfilename, st_uid, st_gid)
         except OSError as exc:
-            logging.exception(exc)
+            logging.error(exc)
 
-def test(data):
+def list_content(data):
     """
     show archive content
     """
@@ -346,34 +343,27 @@ def save_archive(data, absfilename):
     outfile.flush()
     outfile.close()
 
-#def save_s3(data, absfilename, s3_bucket, s3_path):
-#    """
-#    store loacl file to s3 storage
-#    """
-#    import boto3
-#    client = boto3.client("s3")
-#    client.upload_file(absfilename, s3_bucket, "%s/%s" % (s3_path, os.path.basename(absfilename)))
-
-
 def main():
     parser = argparse.ArgumentParser(description='create/manage/restore WebStorage Archives')
-    parser.add_argument("-c", '--create', help="create archive of -p/--path to this path", required=False)
-    parser.add_argument("-d", '--diff', help="create differential to this archive", required=False)
-    parser.add_argument("-e", '--exclude-file', help="exclude file, rsync style, in conjunction with -c/-d", required=False)
-    parser.add_argument("-x", '--extract', help="restore content of file to -p location", required=False)
-    parser.add_argument("-t", '--test', help="show inventory of archive, like ls", required=False)
-    parser.add_argument('--list', help="list content of archive with sha1 checksums and filepath, handy to grab single files with wscat", required=False)
-    parser.add_argument('--verify', help="verify archive against Filestorage", required=False)
-    parser.add_argument('--verify-deep', action="store_true", default=False, help="in conjunction with --verify, verify also every Block against BlockStorage", required=False)
-    parser.add_argument("-p", "--path", help="path to extraxt/create/output", required=False)
+    parser.add_argument("-c", "--create", action="store_true", default=False, help="create archive of -p/--path to this path", required=False)
+    parser.add_argument("-d", '--diff', action="store_true", default=False, help="create differential to this archive, needs --file/--s3 to point to a file", required=False)
+    parser.add_argument("-e", '--exclude-file', help="local exclude file, rsync style, in conjunction with -c/-d", required=False)
+    parser.add_argument("-x", '--extract', action="store_true", default=False, help="restore content of file to -p location, needs --file/--s3 to point to a file", required=False)
+    parser.add_argument('--overwrite', action="store_true", default=False, help="overwrite existing files during restore", required=False)
+    parser.add_argument("-l", '--list', action="store_true", default=False, help="show inventory of archive, like ls, needs --file/--s3 to point to a file", required=False)
+    parser.add_argument('--list-checksums', action="store_true", default=False, help="in conjunction with -t/--test to ouutput sha1 checksums also", required=False)
+    parser.add_argument("-b", '--backupsets', action="store_true", default=False, help="list stored wstar archives, needs --file/--s3 to point to a path", required=False)
+    parser.add_argument('-t', "--test", action="store_true", default=False, help="verify archive against Filestorage, needs --file/--s3 to point to a file", required=False)
+    parser.add_argument('--test-deep', action="store_true", default=False, help="in conjunction with --verify, verify also every Block against BlockStorage", required=False)
+    parser.add_argument("-p", "--path", help="path to extract/create", required=False)
     parser.add_argument('--tag', default="backup", help="optional string to implement in auto generated archive filename")
-    parser.add_argument('--s3', action="store_true", help="stor wstar archive also on amazon s3, you have to configure aws s3 credentials for this")
-    parser.add_argument('--s3-bucket', help="S3 bucket to use")
-    parser.add_argument('--s3-path', default="/", help="path in s3 bucket to use")
+    parser.add_argument('--file', help="store wstar archive locally in this path, filename will be auto-generated")
+    parser.add_argument('--s3', help="stor wstar archive also on amazon s3, you have to configure aws s3 credentials for this, format <Bucket>/<Path>")
     parser.add_argument('--cache', action="store_true", default=True, help="in caching mode, alls available FileStorage checksum will be preloaded from backend. consumes more memory")
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
     args = parser.parse_args()
+    logging.info(args)
     # set logging level
     if args.quiet is True:
         logging.getLogger("").setLevel(logging.ERROR)
@@ -386,72 +376,115 @@ def main():
         blacklist_func = create_blacklist(args.exclude_file)
     else:
         blacklist_func = lambda a: False
+    # LIST Function
+    if args.backupsets is True:
+        if args.s3 is None:
+            logging.error("you have to provide some s3 path with option --s3")
+            sys.exit(1)
+        myhostname = socket.gethostname()
+        s3_bucket = args.s3.split("/")[0] # the fist part
+        s3_path = "/".join(args.s3.split("/")[1:]) # the remaining part
+        logging.info("using S3-Bucket : %s", s3_bucket)
+        logging.info("showing available wstar archives for host %s in path %s/%s", myhostname, s3_bucket, s3_path)
+        backupsets = get_s3_backupsets(myhostname, s3_bucket, s3_path)
+        for key in sorted(backupsets.keys()):
+            value = backupsets[key]
+            logging.info("%(date)10s %(time)8s %(size)s\t%(tag)s\t%(basename)s" % value)
     # CREATE new Archive
-    if args.create is not None:
+    elif args.create is True:
         # caching works best while creating backups
         fs = FileStorageClient(cache=args.cache)
-        if os.path.isfile(args.create):
-            logging.error("output file %s already exists, delete it first", args.create)
-            sys.exit(1)
         if not os.path.isdir(args.path[0]):
             logging.error("%s does not exist", args.path[0])
             sys.exit(1)
         # create
         try:
             filename = get_filename(args.tag)
-            absfilename = os.path.join(args.path, filename)
-            logging.info("archiving content of %s to %s", args.path, absfilename)
+            logging.info("archiving content of %s to %s", args.path, filename)
             archive_dict = create(fs, args.path, blacklist_func)
             logging.info("%(totalcount)d files of %(totalsize)s bytes size" % archive_dict)
             duration = archive_dict["stoptime"] - archive_dict["starttime"]
             logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(archive_dict["totalsize"] / duration))
-            # store local
-            save_archive(archive_dict, absfilename)
             # store in s3
-            if args.s3 is True:
-                save_s3(archive_dict, filename, args.s3_bucket, args.s3_path)
+            if args.s3 is not None:
+                s3_bucket = args.s3.split("/")[0] # the fist part
+                s3_path = "/".join(args.s3.split("/")[1:]) # the remaining part
+                save_s3(archive_dict, filename, s3_bucket, s3_path)
         except Exception as exc:
             logging.exception(exc)
-            os.unlink(absfilename)
     # list content or archive
-    elif args.test is not None:
-        if not os.path.isfile(args.test):
-            logging.error("you have to provide a existing wstar file")
+    elif args.list is True:
+        if args.s3 is None:
+            logging.error("you have to provide option --s3")
             sys.exit(1)
         else:
-            data = json.loads(gzip.open(args.test, "rt").read())
-            test(fs, data)
-    # Verify and verify deep
-    elif args.verify is not None:
-        # caching works best while creating backups
-        fs = FileStorageClient(cache=args.cache)
-        if not os.path.isfile(args.verify):
-            logging.error("you have to provide a existing wstar file")
-            sys.exit(1)
-        else:
-            data = json.loads(gzip.open(args.verify, "rt").read())
-            if args.verify_deep is True:
-                check(fs, data, deep=True)
+            myhostname = socket.gethostname()
+            s3_bucket = args.s3.split("/")[0]
+            s3_path_or_file = "/".join(args.s3.split("/")[1:])
+            s3_key = None
+            if s3_path_or_file[-1] == "/":
+                # choose lates backupset, if only path is given
+                logging.info("searching for latest backuset in %s", s3_path_or_file)
+                # remove trailiung slash, s3 wouldnt return any data if this is present
+                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=args.tag)
             else:
-                check(fs, data)
-    # List content with SHA1 checksums
-    elif args.list is not None:
-        if not os.path.isfile(args.list):
-            logging.error("you have to provide a existing wstar file")
+                # assume this is a file
+                s3_key = s3_path_or_file
+            data = get_s3_data(s3_bucket, s3_key)
+            if args.list_checksums is True:
+                for absfile in sorted(data["filedata"].keys()):
+                    filedata = data["filedata"][absfile]
+                    logging.info("%s %s", filedata["checksum"], absfile)
+            else:
+                list_content(data)
+    # Verify and verify deep
+    elif args.test is True:
+        if args.s3 is None:
+            logging.error("you have to provide option --s3")
             sys.exit(1)
         else:
-            data = json.loads(gzip.open(args.list, "rt").read())
-            for absfile in sorted(data["filedata"].keys()):
-                filedata = data["filedata"][absfile]
-                logging.info("%s %s", filedata["checksum"], absfile)
+            myhostname = socket.gethostname()
+            s3_bucket = args.s3.split("/")[0]
+            s3_path_or_file = "/".join(args.s3.split("/")[1:])
+            s3_key = None
+            if s3_path_or_file[-1] == "/":
+                # choose lates backupset, if only path is given
+                logging.info("searching for latest backupset in %s", s3_path_or_file)
+                # remove trailiung slash, s3 wouldnt return any data if this is present
+                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=args.tag)
+            else:
+                # assume this is a file
+                s3_key = s3_path_or_file
+            data = get_s3_data(s3_bucket, s3_key)
+            fs = FileStorageClient(cache=args.cache)
+            if args.test_deep is True:
+                test(fs, data, deep=True)
+            else:
+                test(fs, data)
     # DIFFERENTIAL Backup
-    elif args.diff is not None:
-        # no caching
-        fs = FileStorageClient(cache=False)
-        if not os.path.isfile(args.diff):
-            logging.error("you have to provide a existing wstar file")
+    elif args.diff is True:
+        if args.s3 is None:
+            logging.error("you have to provide option --s3")
+            sys.exit(1)
         else:
-            data = json.loads(gzip.open(args.diff, "rt").read())
+            myhostname = socket.gethostname()
+            s3_bucket = args.s3.split("/")[0]
+            s3_path_or_file = "/".join(args.s3.split("/")[1:])
+            s3_key = None # the name of the file
+            s3_path = None # the folder the file is in
+            if s3_path_or_file[-1] == "/":
+                # choose lates backupset, if only path is given
+                logging.info("searching for latest backupset in %s", s3_path_or_file)
+                # remove trailiung slash, s3 wouldnt return any data if this is present
+                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=args.tag)
+                s3_path = s3_path_or_file
+            else:
+                # assume this is a file
+                s3_key = s3_path_or_file
+                s3_path = s3_path_or_file.split("/")[:-1]
+            data = get_s3_data(s3_bucket, s3_key)
+            # data will be modified, side-effect
+            fs = FileStorageClient(cache=False)
             changed = diff(fs, data, blacklist_func)
             if changed is False:
                 logging.info("Nothing changed")
@@ -459,29 +492,39 @@ def main():
                 logging.info("%(totalcount)d files of %(totalsize)s bytes size" % data)
                 duration = data["stoptime"] - data["starttime"]
                 logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(data["totalsize"] / duration))
-                if args.path is None:
-                    logging.error("you have to provide -p/--path to write new archive data to file")
-                else:
-                    filename = get_filename(args.tag)
-                    absfilename = os.path.join(args.path, filename)
-                    save_archive(data, absfilename)
-                    # store in s3
-                    if args.s3 is True:
-                        save_s3(data, filename, args.s3_bucket, args.s3_path)
+                filename = get_filename(args.tag)
+                # store in s3
+                s3_bucket = args.s3.split("/")[0] # the fist part
+                s3_path = "/".join(args.s3.split("/")[1:]) # the remaining part
+                save_s3(data, filename, s3_bucket, s3_path)
     # EXTRACT to path
-    elif args.extract is not None:
-        # no caching
-        fs = FileStorageClient(cache=False)
+    elif args.extract is True:
         if not os.path.isdir(args.path):
-            logging.error("%s does not exist", args.create)
+            logging.error("folder %s to restore to does not exist", args.create)
             sys.exit(1)
-        if not os.path.isfile(args.extract):
-            logging.error("you have to provide a existing wstar file")
+        if args.s3 is None:
+            logging.error("you have to provide option --s3")
             sys.exit(1)
         else:
-            data = json.loads(gzip.open(args.extract, "rt").read())
-            pprint.pprint(data)
-            restore(fs, data, args.path[0])
+            myhostname = socket.gethostname()
+            s3_bucket = args.s3.split("/")[0]
+            s3_path_or_file = "/".join(args.s3.split("/")[1:])
+            s3_key = None # the name of the file
+            s3_path = None # the folder the file is in
+            if s3_path_or_file[-1] == "/":
+                # choose lates backupset, if only path is given
+                logging.info("searching for latest backupset in %s", s3_path_or_file)
+                # remove trailiung slash, s3 wouldnt return any data if this is present
+                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=args.tag)
+                s3_path = s3_path_or_file
+            else:
+                # assume this is a file
+                s3_key = s3_path_or_file
+                s3_path = s3_path_or_file.split("/")[:-1]
+        # no caching for restore needed
+        data = get_s3_data(s3_bucket, s3_key)
+        fs = FileStorageClient(cache=False)
+        restore(fs, data, args.path, overwrite=args.overwrite)
     else:
         logging.error("nice, you have started this program without any purpose?")
 

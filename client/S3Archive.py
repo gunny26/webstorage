@@ -6,6 +6,7 @@ import socket
 import gzip
 import json
 import tempfile
+import logging
 try:
     from StringIO import StringIO
 except ImportError:
@@ -16,6 +17,7 @@ def get_s3_backupsets(myhostname, bucket, path, mytag="backup"):
     """
     return data of available backupsets on this specific s3 location
     """
+    logging.info("searching for wstar archives in bucket %s path %s", bucket, path)
     result = {}
     rex = re.compile("^(.+)_(.+)_(.+)\.wstar\.gz$")
     s3 = boto3.client("s3")
@@ -54,7 +56,7 @@ def get_s3_latest_backupset(hostname, bucket, path, mytag="backup"):
     """
     backupsets = get_s3_backupsets(hostname, bucket, path, mytag)
     latest = sorted(backupsets.keys())[-1]
-    pprint.pprint(latest)
+    logging.info("latest backupset found %s", latest)
     return latest
 
 def get_s3_data(bucket, key):
@@ -64,9 +66,9 @@ def get_s3_data(bucket, key):
     bucket <str>
     key <str> Key of existing S3 object
     """
+    logging.info("getting data forbackupset %s", key)
     s3 = boto3.client("s3")
     res = s3.get_object(Bucket=bucket, Key=key)
-    pprint.pprint(res)
     # TODO is this the only and best way, i'm not sure
     json_str = res["Body"].read().decode("utf-8")
     return json.loads(json_str)
@@ -76,6 +78,11 @@ def save_s3(data, filename, s3_bucket, s3_path):
     store data to s3
     """
     s3 = boto3.client("s3")
-    # convert data to StringIO to get file like interface
-    res = s3.put_object(Body=json.dumps(data), Bucket=s3_bucket, Key="%s/%s" % (s3_path, filename))
-    # pprint.pprint(res)
+    key = None
+    if s3_path[-1] == "/":
+        key="/".join((s3_path[:-1], filename))
+    else:
+        key="/".join((s3_path, filename))
+    logging.info("save data to bucket %s path %s", s3_bucket, key)
+    res = s3.put_object(Body=json.dumps(data), Bucket=s3_bucket, Key=key)
+    pprint.pprint(res)
