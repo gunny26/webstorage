@@ -35,7 +35,7 @@ def get_s3_backupsets(myhostname, bucket, path, mytag="backup"):
                     # 2016-10-25T20:23:17.782902
                     thisdate, thistime = timestamp.split("T")
                     thistime = thistime.split(".")[0]
-                    if hostname == myhostname and tag == mytag:
+                    if hostname == myhostname:
                         result[entry["Key"]] = {
                             "date": thisdate,
                             "time" : thistime,
@@ -85,4 +85,4 @@ def save_s3(data, filename, s3_bucket, s3_path):
         key="/".join((s3_path, filename))
     logging.info("save data to bucket %s path %s", s3_bucket, key)
     res = s3.put_object(Body=json.dumps(data), Bucket=s3_bucket, Key=key)
-    pprint.pprint(res)
+    # pprint.pprint(res)

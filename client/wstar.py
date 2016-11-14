@@ -356,14 +356,14 @@ def main():
     parser.add_argument('-t', "--test", action="store_true", default=False, help="verify archive against Filestorage, needs --file/--s3 to point to a file", required=False)
     parser.add_argument('--test-deep', action="store_true", default=False, help="in conjunction with --verify, verify also every Block against BlockStorage", required=False)
     parser.add_argument("-p", "--path", help="path to extract/create", required=False)
-    parser.add_argument('--tag', default="backup", help="optional string to implement in auto generated archive filename")
+    parser.add_argument('--tag', help="optional string to implement in auto generated archive filename, otherwise last portion of -p is used")
     parser.add_argument('--file', help="store wstar archive locally in this path, filename will be auto-generated")
     parser.add_argument('--s3', help="stor wstar archive also on amazon s3, you have to configure aws s3 credentials for this, format <Bucket>/<Path>")
     parser.add_argument('--cache', action="store_true", default=True, help="in caching mode, alls available FileStorage checksum will be preloaded from backend. consumes more memory")
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
     args = parser.parse_args()
-    logging.info(args)
+    logging.debug(args)
     # set logging level
     if args.quiet is True:
         logging.getLogger("").setLevel(logging.ERROR)
@@ -376,6 +376,17 @@ def main():
         blacklist_func = create_blacklist(args.exclude_file)
     else:
         blacklist_func = lambda a: False
+    # use last portion of path for tag
+    tag = None
+    if args.tag is None:
+        if args.path is not None:
+            tag = os.path.basename(args.path)
+        else:
+            # use backup as fallback
+            tag = "backup"
+    else:
+        tag = args.tag
+    logging.info("using tag %s", tag)
     # LIST Function
     if args.backupsets is True:
         if args.s3 is None:
@@ -399,7 +410,7 @@ def main():
             sys.exit(1)
         # create
         try:
-            filename = get_filename(args.tag)
+            filename = get_filename(tag)
             logging.info("archiving content of %s to %s", args.path, filename)
             archive_dict = create(fs, args.path, blacklist_func)
             logging.info("%(totalcount)d files of %(totalsize)s bytes size" % archive_dict)
@@ -426,7 +437,7 @@ def main():
                 # choose lates backupset, if only path is given
                 logging.info("searching for latest backuset in %s", s3_path_or_file)
                 # remove trailiung slash, s3 wouldnt return any data if this is present
-                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=args.tag)
+                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=tag)
             else:
                 # assume this is a file
                 s3_key = s3_path_or_file
@@ -451,7 +462,7 @@ def main():
                 # choose lates backupset, if only path is given
                 logging.info("searching for latest backupset in %s", s3_path_or_file)
                 # remove trailiung slash, s3 wouldnt return any data if this is present
-                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=args.tag)
+                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=tag)
             else:
                 # assume this is a file
                 s3_key = s3_path_or_file
@@ -476,7 +487,7 @@ def main():
                 # choose lates backupset, if only path is given
                 logging.info("searching for latest backupset in %s", s3_path_or_file)
                 # remove trailiung slash, s3 wouldnt return any data if this is present
-                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=args.tag)
+                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=tag)
                 s3_path = s3_path_or_file
             else:
                 # assume this is a file
@@ -492,7 +503,7 @@ def main():
                 logging.info("%(totalcount)d files of %(totalsize)s bytes size" % data)
                 duration = data["stoptime"] - data["starttime"]
                 logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(data["totalsize"] / duration))
-                filename = get_filename(args.tag)
+                filename = get_filename(tag)
                 # store in s3
                 s3_bucket = args.s3.split("/")[0] # the fist part
                 s3_path = "/".join(args.s3.split("/")[1:]) # the remaining part
@@ -515,7 +526,7 @@ def main():
                 # choose lates backupset, if only path is given
                 logging.info("searching for latest backupset in %s", s3_path_or_file)
                 # remove trailiung slash, s3 wouldnt return any data if this is present
-                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=args.tag)
+                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=tag)
                 s3_path = s3_path_or_file
             else:
                 # assume this is a file
