@@ -16,7 +16,8 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 # own modules
-from S3Archive import *
+# from S3Archive import WebStorageArchiveS3 as WebStorageArchiveS3
+from WebStorageClient import WebStorageArchiveS3 as WebStorageArchiveS3
 from WebStorageClient import FileStorageClient as FileStorageClient
 from WebStorageClient import BlockStorageClient as BlockStorageClient
 from WebStorageClient import HTTP404 as HTTP404
@@ -102,16 +103,15 @@ def create(fs, path, blacklist_func):
     archive_dict = {
         "path" : path,
         "filedata" : {},
-#        "hashmap" : {},
         "blacklist" : None,
         "starttime" : time.time(),
         "stoptime" : None,
     }
     action_stat = {
-      "PUT" : 0,
-      "FDEDUP" : 0,
-      "BDEDUP" : 0,
-      "EXCLUDE" : 0,
+        "PUT" : 0,
+        "FDEDUP" : 0,
+        "BDEDUP" : 0,
+        "EXCLUDE" : 0,
     }
     action_str = "PUT"
     for root, dirs, files in os.walk(path):
@@ -262,9 +262,9 @@ def test(fs, data, deep=False):
             for block in metadata["blockchain"]:
                 blockset.add(block)
                 if bs.exists(block) is True:
-                    logging.info("%s exists", block)
+                    logging.info("\t%s exists", block)
                 else:
-                    logging.error("%s block missing", block)
+                    logging.error("\t%s block missing", block)
                 blockcount += 1
     logging.info("all files %d(%d) available, %d(%d) blocks used", filecount, len(fileset), blockcount, len(blockset))
 
@@ -357,8 +357,7 @@ def main():
     parser.add_argument('--test-deep', action="store_true", default=False, help="in conjunction with --verify, verify also every Block against BlockStorage", required=False)
     parser.add_argument("-p", "--path", help="path to extract/create", required=False)
     parser.add_argument('--tag', help="optional string to implement in auto generated archive filename, otherwise last portion of -p is used")
-    parser.add_argument('--file', help="store wstar archive locally in this path, filename will be auto-generated")
-    parser.add_argument('--s3', help="stor wstar archive also on amazon s3, you have to configure aws s3 credentials for this, format <Bucket>/<Path>")
+    parser.add_argument('--filename', help="filename to get from WebStorageArchive Store, if not given the latest available will be used")
     parser.add_argument('--cache', action="store_true", default=True, help="in caching mode, alls available FileStorage checksum will be preloaded from backend. consumes more memory")
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
@@ -380,24 +379,18 @@ def main():
     tag = None
     if args.tag is None:
         if args.path is not None:
-            tag = os.path.basename(args.path)
+            tag = os.path.basename(os.path.dirname(args.path))
         else:
             # use backup as fallback
             tag = "backup"
     else:
         tag = args.tag
     logging.info("using tag %s", tag)
-    # LIST Function
+    # LIST available backupsets
     if args.backupsets is True:
-        if args.s3 is None:
-            logging.error("you have to provide some s3 path with option --s3")
-            sys.exit(1)
         myhostname = socket.gethostname()
-        s3_bucket = args.s3.split("/")[0] # the fist part
-        s3_path = "/".join(args.s3.split("/")[1:]) # the remaining part
-        logging.info("using S3-Bucket : %s", s3_bucket)
-        logging.info("showing available wstar archives for host %s in path %s/%s", myhostname, s3_bucket, s3_path)
-        backupsets = get_s3_backupsets(myhostname, s3_bucket, s3_path)
+        wsa = WebStorageArchiveS3()
+        backupsets = wsa.get_backupsets(myhostname)
         for key in sorted(backupsets.keys()):
             value = backupsets[key]
             logging.info("%(date)10s %(time)8s %(size)s\t%(tag)s\t%(basename)s" % value)
@@ -405,8 +398,8 @@ def main():
     elif args.create is True:
         # caching works best while creating backups
         fs = FileStorageClient(cache=args.cache)
-        if not os.path.isdir(args.path[0]):
-            logging.error("%s does not exist", args.path[0])
+        if not os.path.isdir(args.path):
+            logging.error("%s does not exist", args.path)
             sys.exit(1)
         # create
         try:
@@ -416,124 +409,84 @@ def main():
             logging.info("%(totalcount)d files of %(totalsize)s bytes size" % archive_dict)
             duration = archive_dict["stoptime"] - archive_dict["starttime"]
             logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(archive_dict["totalsize"] / duration))
-            # store in s3
-            if args.s3 is not None:
-                s3_bucket = args.s3.split("/")[0] # the fist part
-                s3_path = "/".join(args.s3.split("/")[1:]) # the remaining part
-                save_s3(archive_dict, filename, s3_bucket, s3_path)
+            # store
+            wsa = WebStorageArchiveS3()
+            wsa.put(archive_dict, filename)
         except Exception as exc:
             logging.exception(exc)
     # list content or archive
     elif args.list is True:
-        if args.s3 is None:
-            logging.error("you have to provide option --s3")
-            sys.exit(1)
+        myhostname = socket.gethostname()
+        wsa = WebStorageArchiveS3()
+        filename = None
+        if args.filename is None:
+            logging.info("using latest available archive")
+            filename = wsa.get_latest_backupset(myhostname)
         else:
-            myhostname = socket.gethostname()
-            s3_bucket = args.s3.split("/")[0]
-            s3_path_or_file = "/".join(args.s3.split("/")[1:])
-            s3_key = None
-            if s3_path_or_file[-1] == "/":
-                # choose lates backupset, if only path is given
-                logging.info("searching for latest backuset in %s", s3_path_or_file)
-                # remove trailiung slash, s3 wouldnt return any data if this is present
-                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=tag)
-            else:
-                # assume this is a file
-                s3_key = s3_path_or_file
-            data = get_s3_data(s3_bucket, s3_key)
-            if args.list_checksums is True:
-                for absfile in sorted(data["filedata"].keys()):
-                    filedata = data["filedata"][absfile]
-                    logging.info("%s %s", filedata["checksum"], absfile)
-            else:
-                list_content(data)
+            filename = args.filename
+        data = wsa.get(filename)
+        if args.list_checksums is True:
+            for absfile in sorted(data["filedata"].keys()):
+                filedata = data["filedata"][absfile]
+                logging.info("%s %s", filedata["checksum"], absfile)
+        else:
+            list_content(data)
     # Verify and verify deep
     elif args.test is True:
-        if args.s3 is None:
-            logging.error("you have to provide option --s3")
-            sys.exit(1)
+        myhostname = socket.gethostname()
+        wsa = WebStorageArchiveS3()
+        filename = None
+        if args.filename is None:
+            logging.info("using latest available archive")
+            filename = wsa.get_latest_backupset(myhostname)
         else:
-            myhostname = socket.gethostname()
-            s3_bucket = args.s3.split("/")[0]
-            s3_path_or_file = "/".join(args.s3.split("/")[1:])
-            s3_key = None
-            if s3_path_or_file[-1] == "/":
-                # choose lates backupset, if only path is given
-                logging.info("searching for latest backupset in %s", s3_path_or_file)
-                # remove trailiung slash, s3 wouldnt return any data if this is present
-                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=tag)
-            else:
-                # assume this is a file
-                s3_key = s3_path_or_file
-            data = get_s3_data(s3_bucket, s3_key)
-            fs = FileStorageClient(cache=args.cache)
-            if args.test_deep is True:
-                test(fs, data, deep=True)
-            else:
-                test(fs, data)
+            filename = args.filename
+        data = wsa.get(filename)
+        fs = FileStorageClient(cache=args.cache)
+        if args.test_deep is True:
+            test(fs, data, deep=True)
+        else:
+            test(fs, data)
     # DIFFERENTIAL Backup
     elif args.diff is True:
-        if args.s3 is None:
-            logging.error("you have to provide option --s3")
-            sys.exit(1)
+        myhostname = socket.gethostname()
+        wsa = WebStorageArchiveS3()
+        filename = None
+        if args.filename is None:
+            logging.info("using latest available archive")
+            filename = wsa.get_latest_backupset(myhostname)
         else:
-            myhostname = socket.gethostname()
-            s3_bucket = args.s3.split("/")[0]
-            s3_path_or_file = "/".join(args.s3.split("/")[1:])
-            s3_key = None # the name of the file
-            s3_path = None # the folder the file is in
-            if s3_path_or_file[-1] == "/":
-                # choose lates backupset, if only path is given
-                logging.info("searching for latest backupset in %s", s3_path_or_file)
-                # remove trailiung slash, s3 wouldnt return any data if this is present
-                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=tag)
-                s3_path = s3_path_or_file
-            else:
-                # assume this is a file
-                s3_key = s3_path_or_file
-                s3_path = s3_path_or_file.split("/")[:-1]
-            data = get_s3_data(s3_bucket, s3_key)
-            # data will be modified, side-effect
-            fs = FileStorageClient(cache=False)
-            changed = diff(fs, data, blacklist_func)
-            if changed is False:
-                logging.info("Nothing changed")
-            else:
-                logging.info("%(totalcount)d files of %(totalsize)s bytes size" % data)
-                duration = data["stoptime"] - data["starttime"]
-                logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(data["totalsize"] / duration))
-                filename = get_filename(tag)
-                # store in s3
-                s3_bucket = args.s3.split("/")[0] # the fist part
-                s3_path = "/".join(args.s3.split("/")[1:]) # the remaining part
-                save_s3(data, filename, s3_bucket, s3_path)
+            filename = args.filename
+        data = wsa.get(filename)
+        # data will be modified, side-effect
+        fs = FileStorageClient(cache=False)
+        changed = diff(fs, data, blacklist_func)
+        if changed is False:
+            logging.info("Nothing changed")
+        else:
+            logging.info("%(totalcount)d files of %(totalsize)s bytes size" % data)
+            duration = data["stoptime"] - data["starttime"]
+            logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(data["totalsize"] / duration))
+            # store
+            newfilename = get_filename(tag)
+            wsa.put(data, newfilename)
     # EXTRACT to path
     elif args.extract is True:
         if not os.path.isdir(args.path):
             logging.error("folder %s to restore to does not exist", args.create)
             sys.exit(1)
-        if args.s3 is None:
-            logging.error("you have to provide option --s3")
+        myhostname = socket.gethostname()
+        wsa = WebStorageArchiveS3()
+        filename = None
+        if args.filename is None:
+            logging.info("using latest available archive")
+            filename = wsa.get_latest_backupset(myhostname)
             sys.exit(1)
         else:
-            myhostname = socket.gethostname()
-            s3_bucket = args.s3.split("/")[0]
-            s3_path_or_file = "/".join(args.s3.split("/")[1:])
-            s3_key = None # the name of the file
-            s3_path = None # the folder the file is in
-            if s3_path_or_file[-1] == "/":
-                # choose lates backupset, if only path is given
-                logging.info("searching for latest backupset in %s", s3_path_or_file)
-                # remove trailiung slash, s3 wouldnt return any data if this is present
-                s3_key = get_s3_latest_backupset(myhostname, s3_bucket, s3_path_or_file[:-1], mytag=tag)
-                s3_path = s3_path_or_file
-            else:
-                # assume this is a file
-                s3_key = s3_path_or_file
-                s3_path = s3_path_or_file.split("/")[:-1]
+            filename = args.filename
+        # get archive Data
+        data = wsas3.get(args.filename)
         # no caching for restore needed
-        data = get_s3_data(s3_bucket, s3_key)
         fs = FileStorageClient(cache=False)
         restore(fs, data, args.path, overwrite=args.overwrite)
     else:

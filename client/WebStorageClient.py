@@ -2,10 +2,14 @@
 """
 RestFUL Webclient to use FileStorage and BlockStorage WebApps
 """
+import re
 import json
 import hashlib
 import logging
 import requests
+import boto3
+
+
 
 CONFIG = {}
 for line in open("WebStorageClient.ini", "r"):
@@ -184,36 +188,6 @@ class FileStorageClient(object):
             return self.__url + "/"
         return "%s/%s" % (self.__url, arg)
 
-#    def put(self, fh, mime_type="text/html"):
-#        """
-#        save data of fileobject in Blockstorage
-#        data is chunked in self.blocksize pieces and sent to BlockStorage
-#
-#        the data is anyway transfered to BlockStorage, no matter if
-#        this data is already stored
-#        """
-#        def read_block():
-#            return fh.read(self.__bs.blocksize)
-#        metadata = {
-#            "blockchain" : [],
-#            "size" : 0,
-#            "checksum" : None,
-#            "mime_type" : mime_type
-#        }
-#        filehash = self.__hashfunc()
-#        for data in iter(read_block, ""):
-#            filehash.update(data)
-#            metadata["size"] += len(data)
-#            checksum, status = self.__bs.put(data)
-#            metadata["blockchain"].append(checksum)
-#        metadata["checksum"] = filehash.hexdigest()
-#        res = self.__session.put(self.__get_url(metadata["checksum"]), data=json.dumps(metadata))
-#        if res.status_code in (200, 201):
-#            if res.status_code == 201:
-#                logging.info("file for this checksum already existed")
-#            return metadata
-#        raise HTTP404("webapplication returned status %s" % res.status_code)
-
     def put_fast(self, fh, mime_type="application/octet-stream"):
         """
         save data of fileobject in Blockstorage
@@ -358,3 +332,89 @@ class FileStorageClient(object):
                 self.__cache_checksums = set(res.json())
         else:
             logging.error("Failure to get stored checksum from FileStorage Backend, status %s", res.status_code)
+
+
+class WebStorageArchiveS3(object):
+    """
+    store and retrieve S3 Data, specific for WebStorageArchives
+    """
+
+    def __init__(self):
+        """
+        bucket <str> S3 bucket name
+        path <str> Path
+        """
+        self.bucket = CONFIG["S3_BUCKET"]
+        # path will be without trailing slash
+        if CONFIG["S3_PATH"][-1] == "/":
+            self.path = CONFIG["S3_PATH"][:-1]
+        else:
+            self.path = CONFIG["S3_PATH"]
+
+    def get_backupsets(self, hostname):
+        """
+        return data of available backupsets for this specific hostname
+        """
+        logging.info("searching for wstar archives in bucket %s path %s", self.bucket, self.path)
+        result = {}
+        rex = re.compile(r"^(.+)_(.+)_(.+)\.wstar\.gz$")
+        s3client = boto3.client("s3")
+        things = s3client.list_objects(Bucket=self.bucket)
+        if "Contents" in things:
+            for entry in things["Contents"]:
+                if entry["Key"].startswith(self.path):
+                    basename = entry["Key"][len(self.path) + 1:]
+                    size = entry["Size"]
+                    match = rex.match(basename)
+                    if match is not None:
+                        thishostname = match.group(1)
+                        tag = match.group(2)
+                        timestamp = match.group(3)
+                        # 2016-10-25T20:23:17.782902
+                        thisdate, thistime = timestamp.split("T")
+                        thistime = thistime.split(".")[0]
+                        if hostname == thishostname:
+                            result[entry["Key"]] = {
+                                "date": thisdate,
+                                "time" : thistime,
+                                "size" : size,
+                                "tag" : tag,
+                                "basename" : basename
+                            }
+        return result
+
+    def get_latest_backupset(self, hostname):
+        """
+        get the latest backupset stored on s3
+
+        hostname <str>
+        """
+        backupsets = self.get_backupsets(hostname)
+        latest = sorted(backupsets.keys())[-1]
+        filename = backupsets[latest]["basename"]
+        logging.info("latest backupset found %s", filename)
+        return filename
+
+    def get(self, filename):
+        """
+        get wstar archive data from s3, returned data will bi dict
+
+        key <str> Key of existing S3 object
+        """
+        s3client = boto3.client("s3")
+        key = "/".join((self.path, filename))
+        logging.info("getting data forbackupset %s", key)
+        res = s3client.get_object(Bucket=self.bucket, Key=key)
+        # TODO is this the only and best way, i'm not sure
+        json_str = res["Body"].read().decode("utf-8")
+        return json.loads(json_str)
+
+    def put(self, data, filename):
+        """
+        store data to filename, S3 key will be auto generated in conjunction with path
+        """
+        s3client = boto3.client("s3")
+        key = "/".join((self.path, filename))
+        logging.info("save data to bucket %s key %s", self.bucket, key)
+        res = s3client.put_object(Body=json.dumps(data), Bucket=self.bucket, Key=key)
+        return res
