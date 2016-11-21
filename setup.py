@@ -10,7 +10,7 @@ args = {'name': 'webstorage',
         'long_description': __doc__,
         'platforms': ['any'],
         'license': 'LGPLv2',
-        'packages': ['datalogger'],
+        'packages': ['webstorage'],
         # Make packages in root dir appear in pywbem module
         'package_dir': {'webstorage': 'webstorage'},
         # Make extensions in root dir appear in pywbem module
