@@ -41,13 +41,16 @@ class BlockStorageClient(object):
         self.__session = None
         self.__cache = cache
         self.__cache_checksums = set()
+        self.__headers = {
+            "x-auth-token" : CONFIG["APIKEY_BLOCKSTORAGE"]
+        }
         self.__info()
 
     def __info(self):
         # initialize
         self.__session = requests.Session()
         # get info from backend
-        res = self.__session.get(self.__get_url("info"))
+        res = self.__session.get(self.__get_url("info"), headers=self.__headers)
         # hack to be compatible with older requests versions
         try:
             data = res.json()
@@ -84,7 +87,7 @@ class BlockStorageClient(object):
         checksum = digest.hexdigest()
         url = self.__get_url(checksum)
         logging.debug("PUT %s", url)
-        res = self.__session.put(self.__get_url(checksum), data=data)
+        res = self.__session.put(self.__get_url(checksum), data=data, headers=self.__headers)
         if res.status_code in (200, 201):
             if res.status_code == 201:
                 logging.info("block existed, but rewritten")
@@ -96,7 +99,7 @@ class BlockStorageClient(object):
         """get data defined by hexdigest from storage"""
         url = self.__get_url(checksum)
         logging.debug("GET %s", url)
-        res = self.__session.get(self.__get_url(checksum))
+        res = self.__session.get(self.__get_url(checksum), headers=self.__headers)
         if res.status_code == 404:
             raise HTTP404("block with checksum %s does not exist" % checksum)
         return res.content
@@ -105,7 +108,7 @@ class BlockStorageClient(object):
         """delete data defined by hexdigest from storage"""
         url = self.__get_url(checksum)
         logging.debug("DELETE %s", url)
-        res = self.__session.delete(url)
+        res = self.__session.delete(url, headers=self.__headers)
         if res.status_code == 404:
             raise HTTP404("block with checksum %s does not exist" % checksum)
 
@@ -113,7 +116,7 @@ class BlockStorageClient(object):
         """return all availabel data defined by hexdigest as list of hexdigests"""
         url = self.__get_url()
         logging.debug("GET %s", url)
-        res = self.__session.get(url)
+        res = self.__session.get(url, headers=self.__headers)
         if res.status_code == 200:
             return res.json()
         raise HTTP404("webapplication delivered status %s" % res.status_code)
@@ -122,7 +125,7 @@ class BlockStorageClient(object):
         """check if data defined by hexdigest exists"""
         url = self.__get_url(checksum)
         logging.debug("OPTIONS %s", url)
-        res = self.__session.options(url)
+        res = self.__session.options(url, headers=self.__headers)
         if res.status_code == 200:
             return True
         return False
@@ -144,7 +147,7 @@ class BlockStorageClient(object):
     def __init_cache_checksums(self):
         url = self.__get_url()
         logging.debug("GET %s", url)
-        res = self.__session.get(url)
+        res = self.__session.get(url, headers=self.__headers)
         if res.status_code == 200:
             # hack to work also on earlier versions of python 3
             try:
@@ -169,12 +172,15 @@ class FileStorageClient(object):
         self.__hashfunc = None
         self.__cache = cache
         self.__cache_checksums = set()
+        self.__headers = {
+            "x-auth-token" : CONFIG["APIKEY_BLOCKSTORAGE"]
+        }
         self.__info()
 
     def __info(self):
         self.__session = requests.Session()
         # get info from backend
-        res = self.__session.get(self.__get_url("info"))
+        res = self.__session.get(self.__get_url("info"), headers=self.__headers)
         # hack to be compatible with older requests versions
         try:
             data = res.json()
@@ -234,7 +240,7 @@ class FileStorageClient(object):
         metadata["checksum"] = filehash.hexdigest()
         if self.exists(filehash.hexdigest()) is not True: # check if filehash is already stored
             logging.debug("storing recipe for filechecksum: %s", metadata["checksum"])
-            res = self.__session.put(self.__get_url(metadata["checksum"]), data=json.dumps(metadata))
+            res = self.__session.put(self.__get_url(metadata["checksum"]), data=json.dumps(metadata), headers=self.__headers)
             if res.status_code in (200, 201):
                 if res.status_code == 201: # could only be true at some rare race conditions
                     logging.debug("recipe for checksum %s exists already", metadata["checksum"])
@@ -254,7 +260,7 @@ class FileStorageClient(object):
         """
         url = self.__get_url(checksum)
         logging.debug("GET %s", url)
-        res = self.__session.get(url)
+        res = self.__session.get(url, headers=self.__headers)
         if res.status_code == 200:
             metadata = res.json()
             for block in metadata["blockchain"]:
@@ -269,7 +275,7 @@ class FileStorageClient(object):
         """
         url = self.__get_url(checksum)
         logging.debug("DELETE %s", url)
-        res = self.__session.delete(url)
+        res = self.__session.delete(url, headers=self.__headers)
         if res.status_code != 200:
             raise HTTP404("webapplication returned status %s" % res.status_code)
 
@@ -281,7 +287,7 @@ class FileStorageClient(object):
         """
         url = self.__get_url(checksum)
         logging.debug("GET %s", url)
-        res = self.__session.get(url)
+        res = self.__session.get(url, headers=self.__headers)
         if res.status_code == 200:
             return res.json()
         else:
@@ -293,7 +299,7 @@ class FileStorageClient(object):
         """
         url = self.__get_url()
         logging.debug("GET %s", url)
-        res = self.__session.get(url)
+        res = self.__session.get(url, headers=self.__headers)
         if res.status_code == 200:
             return res.json()
         else:
@@ -305,7 +311,7 @@ class FileStorageClient(object):
         """
         url = self.__get_url(checksum)
         logging.debug("OPTIONS %s", url)
-        res = self.__session.options(url)
+        res = self.__session.options(url, headers=self.__headers)
         if res.status_code == 200:
             return True
         if res.status_code == 404:
