@@ -16,13 +16,10 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 # own modules
-# from S3Archive import WebStorageArchiveS3 as WebStorageArchiveS3
-from WebStorageClient import WebStorageArchiveS3 as WebStorageArchiveS3
-from WebStorageClient import FileStorageClient as FileStorageClient
-from WebStorageClient import BlockStorageClient as BlockStorageClient
-from WebStorageClient import HTTP404 as HTTP404
-
-#HASH_MINSIZE = 1024 * BLOCKSIZE
+from webstorage import WebStorageArchiveS3 as WebStorageArchiveS3
+from webstorage import FileStorageClient as FileStorageClient
+from webstorage import BlockStorageClient as BlockStorageClient
+from webstorage import HTTP404 as HTTP404
 
 def filemode(st_mode):
     """

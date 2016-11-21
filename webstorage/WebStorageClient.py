@@ -2,6 +2,8 @@
 """
 RestFUL Webclient to use FileStorage and BlockStorage WebApps
 """
+import os
+import sys
 import re
 import json
 import hashlib
@@ -10,11 +12,15 @@ import requests
 import boto3
 
 
-
 CONFIG = {}
-for line in open("WebStorageClient.ini", "r"):
-    key, value = line.strip().split("=")
-    CONFIG[key] = value
+HOMEPATH = os.path.expanduser("~/.webstorage")
+if not os.path.isdir(HOMEPATH):
+    print("first create INI file in directory {}".format(HOMEPATH))
+    sys.exit(1)
+else:
+    for line in open(os.path.join(HOMEPATH, "WebStorageClient.ini"), "r"):
+        key, value = line.strip().split("=")
+        CONFIG[key] = value
 
 
 class HTTPError(Exception):
