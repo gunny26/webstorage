@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# pylint: disable=line-too-long
 """
 RestFUL Webclient to use FileStorage and BlockStorage WebApps
 """
@@ -24,10 +25,12 @@ else:
 
 
 class HTTPError(Exception):
+    """indicates general exception"""
     pass
 
 
 class HTTP404(Exception):
+    """indicates not found"""
     pass
 
 
@@ -35,6 +38,7 @@ class BlockStorageClient(object):
     """stores chunks of data into BlockStorage"""
 
     def __init__(self, cache=False):
+        """__init__"""
         self.__url = CONFIG["URL_BLOCKSTORAGE"]
         self.__blocksize = None
         self.__hashfunc = None
@@ -47,6 +51,7 @@ class BlockStorageClient(object):
         self.__info()
 
     def __info(self):
+        """get info from backend, and initialize caches"""
         # initialize
         self.__session = requests.Session()
         # get info from backend
@@ -60,13 +65,14 @@ class BlockStorageClient(object):
         if data["hashfunc"] == "sha1":
             self.__hashfunc = hashlib.sha1
         else:
-            raise StandardError("only sha1 hashfunc implemented yet")
+            raise Exception("only sha1 hashfunc implemented yet")
         # checksum cache
         if self.__cache is True:
             logging.info("Getting list of stored checksums from BlockStorageBackend, this could take some time")
             self.__init_cache_checksums()
 
     def __get_url(self, arg=None):
+        """return compound url"""
         if arg is None:
             return self.__url + "/"
         return "%s/%s" % (self.__url, arg)
@@ -145,6 +151,7 @@ class BlockStorageClient(object):
                 return False
 
     def __init_cache_checksums(self):
+        """initialize cache"""
         url = self.__get_url()
         logging.debug("GET %s", url)
         res = self.__session.get(url, headers=self.__headers)
@@ -165,6 +172,7 @@ class FileStorageClient(object):
     """
 
     def __init__(self, cache=False):
+        """__init__"""
         self.__url = CONFIG["URL_FILESTORAGE"]
         self.__bs = BlockStorageClient(cache)
         self.__blocksize = self.__bs.blocksize
@@ -173,11 +181,20 @@ class FileStorageClient(object):
         self.__cache = cache
         self.__cache_checksums = set()
         self.__headers = {
-            "x-auth-token" : CONFIG["APIKEY_BLOCKSTORAGE"]
+            "x-auth-token" : CONFIG["APIKEY_FILESTORAGE"]
         }
         self.__info()
 
+    @property
+    def blockstorage(self):
+        return self.__bs
+
+    @property
+    def hashfunc(self):
+        return self.__hashfunc
+
     def __info(self):
+        """get info from backend and create cache"""
         self.__session = requests.Session()
         # get info from backend
         res = self.__session.get(self.__get_url("info"), headers=self.__headers)
@@ -189,13 +206,14 @@ class FileStorageClient(object):
         if data["hashfunc"] == "sha1":
             self.__hashfunc = hashlib.sha1
         else:
-            raise StandardError("only hashfunc sha1 implemented yet")
+            raise Exception("only hashfunc sha1 implemented yet")
         # checksum cache
         if self.__cache is True:
             logging.info("Getting list of stored checksums from FileStorageBackend, this could take some time")
             self.__init_cache_checksums()
 
     def __get_url(self, arg=None):
+        """return compound url"""
         if arg is None:
             return self.__url + "/"
         return "%s/%s" % (self.__url, arg)
@@ -333,9 +351,10 @@ class FileStorageClient(object):
                 return False
 
     def __init_cache_checksums(self):
+        """create caches"""
         url = self.__get_url()
         logging.debug("GET %s", url)
-        res = self.__session.get(url)
+        res = self.__session.get(url, headers=self.__headers)
         if res.status_code == 200:
             # hack to work also on earlier versions of python 3
             try:
