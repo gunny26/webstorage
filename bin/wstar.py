@@ -18,7 +18,7 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 # own modules
-from webstorage import WebStorageArchiveS3 as WebStorageArchiveS3
+from webstorage import WebStorageArchive as WebStorageArchive
 from webstorage import FileStorageClient as FileStorageClient
 
 def filemode(st_mode):
@@ -269,8 +269,6 @@ def restore(filestorage, data, targetpath, overwrite=False):
     backuppath will be replaced by targetpath
     """
     # check if some files are missing or have changed
-    if targetpath[-1] == "/":
-        targetpath = targetpath[:-1]
     for absfile in sorted(data["filedata"].keys()):
         filedata = data["filedata"][absfile]
         st_mtime, st_atime, st_ctime, st_uid, st_gid, st_mode, st_size = filedata["stat"]
@@ -345,7 +343,7 @@ def main():
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
     args = parser.parse_args()
-    logging.debug(args)
+    logging.error(args)
     # set logging level
     if args.quiet is True:
         logging.getLogger("").setLevel(logging.ERROR)
@@ -368,7 +366,7 @@ def main():
     # LIST available backupsets
     if args.backupsets is True:
         myhostname = socket.gethostname()
-        wsa = WebStorageArchiveS3()
+        wsa = WebStorageArchive()
         backupsets = wsa.get_backupsets(myhostname)
         for key in sorted(backupsets.keys()):
             value = backupsets[key]
@@ -388,29 +386,32 @@ def main():
         duration = archive_dict["stoptime"] - archive_dict["starttime"]
         logging.info("duration %0.2f s, bandwith %s /s", duration, sizeof_fmt(archive_dict["totalsize"] / duration))
         # store
-        wsa = WebStorageArchiveS3()
+        wsa = WebStorageArchive()
         wsa.put(archive_dict, filename)
     # list content or archive
     elif args.list is True:
         myhostname = socket.gethostname()
-        wsa = WebStorageArchiveS3()
+        wsa = WebStorageArchive()
         filename = None
         if args.filename is None:
             logging.info("-f not provided, using latest available archive")
             filename = wsa.get_latest_backupset(myhostname)
         else:
             filename = args.filename
-        data = wsa.get(filename)
-        if args.list_checksums is True:
-            for absfile in sorted(data["filedata"].keys()):
-                filedata = data["filedata"][absfile]
-                logging.info("%s %s", filedata["checksum"], absfile)
+        if filename is not None:
+            data = wsa.get(filename)
+            if args.list_checksums is True:
+                for absfile in sorted(data["filedata"].keys()):
+                    filedata = data["filedata"][absfile]
+                    logging.info("%s %s", filedata["checksum"], absfile)
+            else:
+                list_content(data)
         else:
-            list_content(data)
+            logging.info("no backupset found")
     # Verify and verify deep
     elif args.test is True:
         myhostname = socket.gethostname()
-        wsa = WebStorageArchiveS3()
+        wsa = WebStorageArchive()
         filename = None
         if args.filename is None:
             logging.info("-f not provided, using latest available archive")
@@ -423,7 +424,7 @@ def main():
     # DIFFERENTIAL Backup
     elif args.diff is True:
         myhostname = socket.gethostname()
-        wsa = WebStorageArchiveS3()
+        wsa = WebStorageArchive()
         filename = None
         if args.filename is None:
             logging.info("-f not provided, using latest available archive")
@@ -445,20 +446,22 @@ def main():
             wsa.put(data, newfilename)
     # EXTRACT to path
     elif args.extract is True:
+        if args.path is None:
+            logging.error("you have to provide some path to restore to with parameter -p")
+            sys.exit(1)
         if not os.path.isdir(args.path):
             logging.error("folder %s to restore to does not exist", args.create)
             sys.exit(1)
         myhostname = socket.gethostname()
-        wsa = WebStorageArchiveS3()
+        wsa = WebStorageArchive()
         filename = None
         if args.filename is None:
             logging.info("-f not provided, using latest available archive")
             filename = wsa.get_latest_backupset(myhostname)
-            sys.exit(1)
         else:
             filename = args.filename
         # get archive Data
-        data = wsa.get(args.filename)
+        data = wsa.get(filename)
         # no caching for restore needed
         filestorage = FileStorageClient(cache=False)
         restore(filestorage, data, args.path, overwrite=args.overwrite)
