@@ -7,7 +7,7 @@ import os
 import time
 import logging
 FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
-logging.basicConfig(level=logging.DEBUG, format=FORMAT)
+logging.basicConfig(level=logging.INFO, format=FORMAT)
 import json
 
 urls = (
@@ -17,11 +17,62 @@ urls = (
 
 # add wsgi functionality
 CONFIG = {}
-for line in open("/var/www/webstorage/webapps/filestorage.ini", "rb"):
-    key, value = line.strip().split("=")
-    CONFIG[key] = value
-STORAGE_DIR = CONFIG["STORAGE_DIR"]
+def load_config():
+    """
+    load some configuration parameters from file
+    """
+    configfile = os.path.expanduser("~/filestorage.ini")
+    global CONFIG
+    if os.path.isfile(configfile):
+        for line in open(configfile, "rb"):
+            key, value = line.strip().split("=")
+            CONFIG[key] = value
+    else:
+        logging.error("configfile %s does not exist", configfile)
 
+APIKEYS = {}
+def load_apikeys():
+    """
+    load APIKEYS from stored json file in user home directory
+    """
+    apikeysfile = os.path.expanduser("~/filestorage_apikeys.json")
+    if os.path.isfile(apikeysfile):
+        global APIKEYS
+        logging.error("loading APIKEYS from %s", apikeysfile)
+        APIKEYS = json.load(open(apikeysfile))
+        logging.error(APIKEYS)
+    else:
+        logging.error("no API-KEYS File found, create file %s", apikeysfile)
+
+def authenticator(func):
+    """
+    decorator for authentication
+    """
+    def inner(*args, **kwds):
+        call_str = "%s(%s, %s)" % (func.__name__, args[1:], kwds)
+        logging.debug("calling %s", call_str)
+        try:
+            if web.ctx.env.get("HTTP_X_AUTH_TOKEN") is not None:
+                if web.ctx.env.get("HTTP_X_AUTH_TOKEN") not in APIKEYS:
+                    logging.error("X-AUTH-TOKEN %s not in allowed APIKEYS", web.ctx.env.get("HTTP_X_AUTH_TOKEN"))
+                    web.ctx.status = '401 Unauthorized'
+                else:
+                    # authorization OK
+                    logging.debug("successfully authorized with APIKEY %s", web.ctx.env.get("HTTP_X_AUTH_TOKEN")) 
+                    ret_val = func(*args, **kwds)
+                    return ret_val
+            else:
+                logging.error("X-AUTH-TOKEN HTTP Header missing")
+                web.ctx.status = '401 Unauthorized'
+            return
+        except StandardError as exc:
+            logging.exception(exc)
+            logging.error("call to %s caused StandardError", call_str)
+            web.internalerror()
+    # set inner function __name__ and __doc__ to original ones
+    inner.__name__ = func.__name__
+    inner.__doc__ = func.__doc__
+    return inner
 
 def calllogger(func):
     """
@@ -50,6 +101,7 @@ class FileStorageInfo(object):
     return inforamtions about FileStorage
     """
 
+    @authenticator
     def GET(self):
         """
         get some statistical data from FileStorage
@@ -78,6 +130,7 @@ class FileStorage(object):
     def __get_filename(self, checksum):
         return os.path.join(CONFIG["STORAGE_DIR"], "%s.json" % checksum)
 
+    @authenticator
     @calllogger
     def GET(self, args):
         """
@@ -90,7 +143,7 @@ class FileStorage(object):
         if len(args) == 0:
             # no checksum given, do ls style
             web.header('Content-Type', 'application/json')
-            return json.dumps([filename[:-5] for filename in os.listdir(STORAGE_DIR)])
+            return json.dumps([filename[:-5] for filename in os.listdir(CONFIG["STORAGE_DIR"])])
         else:
             checksum = args.split("/")[0]
             assert len(checksum) == self.maxlength
@@ -101,6 +154,7 @@ class FileStorage(object):
                 logging.error("File %s does not exist", self.__get_filename(checksum))
                 web.notfound()
 
+    @authenticator
     @calllogger
     def OPTIONS(self, args):
         """
@@ -115,6 +169,7 @@ class FileStorage(object):
         if not os.path.isfile(self.__get_filename(checksum)):
             web.notfound()
 
+    @authenticator
     @calllogger
     def PUT(self, args):
         """
@@ -163,6 +218,7 @@ class FileStorage(object):
         else:
             web.notfound()
 
+    @authenticator
     @calllogger
     def POST(self, args):
         """
@@ -200,6 +256,7 @@ class FileStorage(object):
         else:
             web.notfound()
 
+    @authenticator
     @calllogger
     def NODELETE(self, args):
         """
@@ -221,7 +278,11 @@ class FileStorage(object):
 
 
 if __name__ == "__main__":
+    load_config()
+    load_apikeys()
     app = web.application(urls, globals())
     app.run()
 else:
+    load_config()
+    load_apikeys()
     application = web.application(urls, globals()).wsgifunc()

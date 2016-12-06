@@ -20,14 +20,64 @@ urls = (
 
 # add wsgi functionality
 CONFIG = {}
-for line in open("/var/www/webstorage/webapps/blockstorage.ini", "rb"):
-    key, value = line.strip().split("=")
-    CONFIG[key] = value
+def load_config():
+    configfile = os.path.expanduser("~/blockstorage.ini")
+    global CONFIG
+    if os.path.isfile(configfile):
+        for line in open(configfile, "rb"):
+            key, value = line.strip().split("=")
+            CONFIG[key] = value
+    else:
+        logging.error("configfile %s does not exist", configfile)
 
+APIKEYS = {}
+def load_apikeys():
+    """
+    load APIKEYS from stored json file in user home directory
+    """
+    apikeysfile = os.path.expanduser("~/blockstorage_apikeys.json")
+    if os.path.isfile(apikeysfile):
+        global APIKEYS
+        logging.error("loading APIKEYS from %s", apikeysfile)
+        APIKEYS = json.load(open(apikeysfile))
+        logging.error(APIKEYS)
+    else:
+        logging.error("no API-KEYS File found, create file %s", apikeysfile)
+
+
+def authenticator(func):
+    """
+    decorator for authentication
+    """
+    def inner(*args, **kwds):
+        call_str = "%s(%s, %s)" % (func.__name__, args[1:], kwds)
+        logging.debug("calling %s", call_str)
+        try:
+            if web.ctx.env.get("HTTP_X_AUTH_TOKEN") is not None:
+                if web.ctx.env.get("HTTP_X_AUTH_TOKEN") not in APIKEYS:
+                    logging.error("X-AUTH-TOKEN %s not in allowed APIKEYS", web.ctx.env.get("HTTP_X_AUTH_TOKEN"))
+                    web.ctx.status = '401 Unauthorized'
+                else:
+                    # authorization OK
+                    logging.debug("successfully autorized with api-key %s", web.ctx.env.get("HTTP_X_AUTH_TOKEN")) 
+                    ret_val = func(*args, **kwds)
+                    return ret_val
+            else:
+                logging.error("X-AUTH-TOKEN HTTP Header missing")
+                web.ctx.status = '401 Unauthorized'
+            return
+        except StandardError as exc:
+            logging.exception(exc)
+            logging.error("call to %s caused StandardError", call_str)
+            web.internalerror()
+    # set inner function __name__ and __doc__ to original ones
+    inner.__name__ = func.__name__
+    inner.__doc__ = func.__doc__
+    return inner
 
 def calllogger(func):
     """
-    decorator
+    decorator for logging call arguments and duration
     """
     def inner(*args, **kwds):
         starttime = time.time()
@@ -52,6 +102,7 @@ class BlockStorageInfo(object):
     return inforamtions about BlockStorage
     """
 
+    @authenticator
     def GET(self):
         """
         get some statistical data from blockstorage
@@ -92,6 +143,7 @@ class BlockStorage(object):
         """
         return os.path.join(CONFIG["STORAGE_DIR"], "%s.bin" % checksum)
 
+    @authenticator
     @calllogger
     def GET(self, path):
         """
@@ -116,6 +168,7 @@ class BlockStorage(object):
                 logging.error("File %s does not exist", self.__get_filename(checksum))
                 web.notfound()
 
+    @authenticator
     @calllogger
     def PUT(self, path):
         """
@@ -148,6 +201,7 @@ class BlockStorage(object):
         else:
             web.ctx.status = '501 no data to store'
 
+    @authenticator
     @calllogger
     def OPTIONS(self, path):
         """
@@ -163,6 +217,7 @@ class BlockStorage(object):
         if not os.path.exists(self.__get_filename(checksum)):
             web.notfound()
 
+    @authenticator
     @calllogger
     def NODELETE(self, path):
         """
@@ -182,7 +237,11 @@ class BlockStorage(object):
 
 
 if __name__ == "__main__":
+    load_config()
+    load_apikeys()
     app = web.application(urls, globals())
     app.run()
 else:
+    load_config()
+    load_apikeys()
     application = web.application(urls, globals()).wsgifunc()
