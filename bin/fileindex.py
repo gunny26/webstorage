@@ -58,23 +58,38 @@ def main():
     wsa = WebStorageArchive()
     backupsets = wsa.get_backupsets(myhostname)
     filecache = {}
-    with dbm.open("cache", "n") as filecache:
-        for backupset in backupsets:
-            print(backupset)
-            data = wsa.get(backupset)
-            for absfile in data["filedata"].keys():
-                if absfile not in filecache:
-                    filecache[absfile] = json.dumps([backupset, ])
-                else:
-                    try:
-                        existing_data = json.loads(str(filecache[absfile]))
-                        if backupset not in existsing_data:
-                            existing_data.append(backupset)
-                            filecache[absfile] = json.dumps(existing_data)
-                    except json.decoder.JSONDecodeError as exc:
-                        print(filecache[absfile])
-                        raise exc
-            print(" done")
+    for backupset in backupsets:
+        print(backupset)
+        data = wsa.get(backupset)
+        for absfile in data["filedata"].keys():
+            if absfile not in filecache:
+                print("new absfile {}".format(absfile))
+                filecache[absfile] = [backupset, ]
+            else:
+                try:
+                    if backupset not in filecache[absfile]:
+                        filecache[absfile].append(backupset)
+                except json.decoder.JSONDecodeError as exc:
+                    print(filecache[absfile])
+                    raise exc
+        print(" done")
+    print("Found %d filenames" % len(filecache.keys()))
+    # write database to disk
+    with dbm.open("cache", "n") as db:
+        for key in filecache.keys():
+            print("%10d %s" % (len(filecache[key]), key))
+            db[key] = ";".join(filecache[key])
+    diskcache = {}
+    # read database from disk
+    with dbm.open("cache", "r") as db:
+        for key in db.keys():
+            print(key,encode("utf-8"))
+            diskcache[key] = db[key].split(";")
+    # check if newly read diskcache is equal
+    for key in diskcache.keys():
+        print("%10d %10d %s" % (len(diskcache[key]), len(filecache[key]), key))
+        assert len(diskcache[key]) == len(filecache[key])
+
 
 if __name__ == "__main__":
     main()
