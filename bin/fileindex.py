@@ -57,40 +57,60 @@ def main():
     myhostname = socket.gethostname()
     wsa = WebStorageArchive()
     backupsets = wsa.get_backupsets(myhostname)
-    filecache = {}
+    mem_cache = {}
     for backupset in backupsets:
         print(backupset)
         data = wsa.get(backupset)
         for absfile in data["filedata"].keys():
-            if absfile not in filecache:
+            if absfile not in mem_cache:
                 print("new absfile {}".format(absfile))
-                filecache[absfile] = [backupset, ]
+                mem_cache[absfile] = [backupset, ]
             else:
-                try:
-                    if backupset not in filecache[absfile]:
-                        filecache[absfile].append(backupset)
-                except json.decoder.JSONDecodeError as exc:
-                    print(filecache[absfile])
-                    raise exc
+                if backupset not in mem_cache[absfile]:
+                    mem_cache[absfile].append(backupset)
         print(" done")
-    print("Found %d filenames" % len(filecache.keys()))
+    print("Found %d filenames" % len(mem_cache.keys()))
+    #json.dump(filecache, open("cache.json", "wt"))
     # write database to disk
-    with dbm.open("cache", "n") as db:
-        for key in filecache.keys():
-            print("%10d %s" % (len(filecache[key]), key))
-            db[key] = ";".join(filecache[key])
+    with dbm.open(filename, "n") as db:
+        for key in mem_cache.keys():
+            print("%10d %s" % (len(mem_cache[key]), key))
+            db[bytes(key.encode("utf-8"))] = bytes(json.dumps(mem_cache[key]).encode("utf-8"))
     diskcache = {}
     # read database from disk
-    with dbm.open("cache", "r") as db:
+    with dbm.open(filename, "r") as db:
         for key in db.keys():
-            print(key,encode("utf-8"))
-            diskcache[key] = db[key].split(";")
+            print(key.decode("utf-8"))
+            diskcache[key.decode("utf-8")] = json.loads(db[key].decode("utf-8"))
     # check if newly read diskcache is equal
     for key in diskcache.keys():
-        print("%10d %10d %s" % (len(diskcache[key]), len(filecache[key]), key))
-        assert len(diskcache[key]) == len(filecache[key])
+        print("%10d %10d %s" % (len(diskcache[key]), len(mem_cache[key]), key))
+        assert len(diskcache[key]) == len(mem_cache[key])
+    return
+
+def update(filename):
+    myhostname = socket.gethostname()
+    wsa = WebStorageArchive()
+    backupsets = wsa.get_backupsets(myhostname)
+    with dbm.open(filename, "c") as cache:
+        for backupset in backupsets:
+            print(backupset)
+            data = wsa.get(backupset)
+            for absfile in data["filedata"].keys():
+                absfile_b = bytes(absfile.encode("utf-8"))
+                if absfile_b not in cache:
+                    print("new absfile {}".format(absfile))
+                    cache[absfile_b] = json.dumps([backupset, ])
+                else:
+                    existing_data = json.loads(cache[absfile_b].decode("utf-8"))
+                    if backupset not in existing_data:
+                        existing_data.append(backupset)
+                        cache[absfile_b] = json.dumps(existing_data)
+            print(" done")
 
 
 if __name__ == "__main__":
-    main()
+    filename = "absfile_cache.dbm"
+    main(filename)
+    update(filename)
 
