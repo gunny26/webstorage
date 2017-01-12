@@ -7,10 +7,9 @@ import os
 import sys
 import re
 import json
-import hashlib
 import logging
-import requests
 import base64
+import requests
 
 
 CONFIG = {}
