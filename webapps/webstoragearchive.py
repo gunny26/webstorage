@@ -6,6 +6,7 @@ import web
 import os
 import time
 import base64
+import gzip
 import logging
 FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
 logging.basicConfig(level=logging.INFO, format=FORMAT)
@@ -126,12 +127,12 @@ class WebStorageArchive(object):
             return json.dumps(ret_data)
         else:
             # return named filename
-            logging.debug("recevied b64encoded filename %s", args)
+            logging.debug("received b64encoded filename %s", args)
             filename = base64.b64decode(args)
             logging.debug("decoded filename %s", filename)
             path = os.path.join(CONFIG["STORAGE_DIR"], filename)
             web.header('Content-Type', 'application/json')
-            return open(path, "rb").read()
+            return gzip.open(path, "rb").read()
 
     @authenticator
     @calllogger
@@ -144,7 +145,7 @@ class WebStorageArchive(object):
             # should be b64 encoded filename
             raise web.internalerror()
         else:
-            logging.debug("recevied b64encoded filename %s", args)
+            logging.debug("received b64encoded filename %s", args)
             filename = base64.b64decode(args)
             logging.debug("decoded filename %s", filename)
             path = os.path.join(CONFIG["STORAGE_DIR"], filename)
@@ -152,7 +153,7 @@ class WebStorageArchive(object):
                 logging.info("file %s exists already, not allowed", filename)
                 raise web.notauthorized()
             else:
-                open(path, "wb").write(data)
+                gzip.open(path, "wb").write(data)
 
     @authenticator
     @calllogger
