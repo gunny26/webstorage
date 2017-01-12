@@ -53,10 +53,10 @@ def ppls(absfile, filedata):
     datestring = datetime.datetime.fromtimestamp(int(st_mtime))
     return "%10s %s %s %10s %19s %s" % (filemode(st_mode), st_uid, st_gid, sizeof_fmt(st_size), datestring, absfile)
 
-def main():
+def main(filename):
     myhostname = socket.gethostname()
     wsa = WebStorageArchive()
-    backupsets = wsa.get_backupsets(myhostname)
+    backupsets = wsa.get_backupsets()
     mem_cache = {}
     for backupset in backupsets:
         print(backupset)
@@ -91,7 +91,7 @@ def main():
 def update(filename):
     myhostname = socket.gethostname()
     wsa = WebStorageArchive()
-    backupsets = wsa.get_backupsets(myhostname)
+    backupsets = wsa.get_backupsets()
     with dbm.open(filename, "c") as cache:
         for backupset in backupsets:
             print(backupset)

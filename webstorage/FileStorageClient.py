@@ -10,7 +10,7 @@ import hashlib
 import logging
 import requests
 # own modules
-from BlockStorageClient import BlockStorageClient as BlockStorageClient
+from webstorage.BlockStorageClient import BlockStorageClient as BlockStorageClient
 
 
 CONFIG = {}
