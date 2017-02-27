@@ -7,6 +7,7 @@ command line program to create/restore/test WebStorageArchives
 import os
 import hashlib
 import datetime
+import dateutil.parser
 import time
 import sys
 import socket
@@ -89,47 +90,31 @@ def main(filename):
     return
 
 def update(filename):
+    import sqlite3
+    conn = sqlite3.connect(filename)
+    cur = conn.cursor()
+    cur.execute("create table if not exists filename_to_checksum (backupset, hostname, tag, dirname, basename, datestring datetime, checksum)")
+    cur.execute("create table if not exists checksum_to_backupset (checksum, backupset)");
     myhostname = socket.gethostname()
     wsa = WebStorageArchive()
     backupsets = wsa.get_backupsets(myhostname)
-    with dbm.open(filename, "c") as cache:
-        for backupset in backupsets:
-            print(backupset)
-            data = wsa.get(backupset)
-            for absfile in data["filedata"].keys():
-                absfile_b = bytes(absfile.encode("utf-8"))
-                if absfile_b not in cache:
-                    print("new absfile {}".format(absfile))
-                    cache[absfile_b] = json.dumps([backupset, ])
-                else:
-                    existing_data = json.loads(cache[absfile_b].decode("utf-8"))
-                    if backupset not in existing_data:
-                        existing_data.append(backupset)
-                        cache[absfile_b] = json.dumps(existing_data)
-            print(" done")
-
-def simple(filename):
-    myhostname = socket.gethostname()
-    wsa = WebStorageArchive()
-    backupsets = wsa.get_backupsets(myhostname)
+    # like wse0000107_mesznera_2016-12-06T13:48:13.400565.wstar.gz
     for backupset in backupsets:
-        print(backupset)
+        hostname, tag, isoformat_ext = backupset.split("_")
+        isoformat = isoformat_ext[:-9]
+        datestring = dateutil.parser.parse(isoformat)
+        print(hostname, tag, dateutil.parser.parse(isoformat))
         data = wsa.get(backupset)
         for absfile in data["filedata"].keys():
-            absfile_b = bytes(absfile.encode("utf-8"))
-            if absfile_b not in cache:
-                print("new absfile {}".format(absfile))
-                cache[absfile_b] = json.dumps([backupset, ])
-            else:
-                existing_data = json.loads(cache[absfile_b].decode("utf-8"))
-                if backupset not in existing_data:
-                    existing_data.append(backupset)
-                    cache[absfile_b] = json.dumps(existing_data)
+            checksum = data["filedata"][absfile]["checksum"]
+            cur.execute("insert into filename_to_checksum values (?, ?, ?, ?, ?, ?, ?)", (backupset, hostname, tag, os.path.dirname(absfile), os.path.basename(absfile), isoformat, checksum))
+            cur.execute("insert into checksum_to_backupset values (?, ?)", (checksum, backupset))
+            # print(data["filedata"][absfile])
+        conn.commit()
         print(" done")
 
-
 if __name__ == "__main__":
-    filename = "absfile_cache.dbm"
-    main(filename)
+    filename = "filename_to_checksum.db"
+    #main(filename)
     update(filename)
 
