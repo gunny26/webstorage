@@ -7,14 +7,16 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("urllib3").setLevel(logging.ERROR)
 logging.getLogger("requests").setLevel(logging.ERROR)
 # own modules
-from WebStorageClient import FileStorageClient as FileStorageClient
+from webstorage import FileStorageClient as FileStorageClient
 
 
 if __name__ == "__main__":
     fs = FileStorageClient()
     if os.path.isfile(sys.argv[1]):
+        # read checksum from file
         checksum = open(sys.argv[1], "rb").read().split("\n")[1]
         print fs.get(checksum)
     else:
-        data = fs.get(sys.argv[1])
-        print data
+        # read checksum from commandline
+        for data in fs.read(sys.argv[1]):
+            print data

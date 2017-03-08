@@ -14,6 +14,7 @@ import socket
 import argparse
 import stat
 import re
+import sqlite3
 import logging
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 logging.getLogger("requests").setLevel(logging.WARNING)
@@ -89,28 +90,97 @@ def main(filename):
         assert len(diskcache[key]) == len(mem_cache[key])
     return
 
+class NtoM(object):
+    """
+    build n : m dependent key value stores
+    """
+
+    def __init__(self, keyname1, keyname2):
+        self.__keyname1 = keyname1
+        self.__keyname2 = keyname2
+        self.__data = {
+            self.__keyname1 : {},
+            self.__keyname2 : {}
+            }
+        self.__dirty = False # indicate if data is modified in memory
+
+    def add(self, **kwds):
+        key1 = kwds[self.__keyname1]
+        key2 = kwds[self.__keyname2]
+        if key1 in self.__data[self.__keyname1]:
+             self.__data[self.__keyname1][key1].append(key2)
+        else:
+            self.__data[self.__keyname1][key1] = [key2, ]
+        if key2 in self.__data[self.__keyname2]:
+             self.__data[self.__keyname2][key2].append(key1)
+        else:
+            self.__data[self.__keyname2][key2] = [key1, ]
+        self.__dirty = True
+
+    def save(self, filename):
+        """
+        dump internal data to sqlite database
+        """
+        conn = sqlite3.connect(filename)
+        cur = conn.cursor()
+        tablename1 = "%s_to_%s" % (self.__keyname1, self.__keyname2)
+        tablename2 = "%s_to_%s" % (self.__keyname2, self.__keyname1)
+        cur.execute("create table if not exists %s ('%s', '%s')" % (tablename1, self.__keyname1, self.__keyname2))
+        for key, value in self.__data[self.__keyname1].items():
+            cur.execute("insert into %s values (?, ?)" % tablename1, (key, json.dumps(value)))
+        cur.execute("create table if not exists %s ('%s', '%s')" % (tablename2, self.__keyname2, self.__keyname1))
+        for key, value in self.__data[self.__keyname2].items():
+            cur.execute("insert into %s values (?, ?)" % tablename2, (key, json.dumps(value)))
+        conn.commit()
+        self.__dirty = False
+
+    def load(self, filename):
+        """
+        dump internal data to sqlite database
+        """
+        conn = sqlite3.connect(filename)
+        cur = conn.cursor()
+        tablename1 = "%s_to_%s" % (self.__keyname1, self.__keyname2)
+        tablename2 = "%s_to_%s" % (self.__keyname2, self.__keyname1)
+        for row in cur.execute("select * from %s" % tablename1).fetchall():
+            self.add(row[0], json.loads(row[1]))
+        for row in cur.execute("select * from %s" % tablename2).fetchall():
+            self.add(row[0], json.loads(row[1]))
+
+
 def update(filename):
-    import sqlite3
     conn = sqlite3.connect(filename)
     cur = conn.cursor()
-    cur.execute("create table if not exists filename_to_checksum (backupset, hostname, tag, dirname, basename, datestring datetime, checksum)")
-    cur.execute("create table if not exists checksum_to_backupset (checksum, backupset)");
+    cur.execute("create table if not exists backupsets_done (backupset)")
+    #cur.execute("create table if not exists filename_to_checksum (absfile, checksum)")
+    #cur.execute("create table if not exists filename_to_backupset (absfile, backupset)")
+    #cur.execute("create table if not exists checksum_to_backupset (checksum, backupset)");
     myhostname = socket.gethostname()
     wsa = WebStorageArchive()
     backupsets = wsa.get_backupsets(myhostname)
     # like wse0000107_mesznera_2016-12-06T13:48:13.400565.wstar.gz
+    backupsets_done = [row[0] for row in cur.execute("select backupset from backupsets_done").fetchall()]
     for backupset in backupsets:
+        #if backupset in backupsets_done:
+        #    print(" backupset %s already done" % backupset)
+        #    continue
         hostname, tag, isoformat_ext = backupset.split("_")
         isoformat = isoformat_ext[:-9]
         datestring = dateutil.parser.parse(isoformat)
         print(hostname, tag, dateutil.parser.parse(isoformat))
         data = wsa.get(backupset)
+        filename_to_checksum = NtoM("absfile", "checksum")
         for absfile in data["filedata"].keys():
             checksum = data["filedata"][absfile]["checksum"]
-            cur.execute("insert into filename_to_checksum values (?, ?, ?, ?, ?, ?, ?)", (backupset, hostname, tag, os.path.dirname(absfile), os.path.basename(absfile), isoformat, checksum))
-            cur.execute("insert into checksum_to_backupset values (?, ?)", (checksum, backupset))
+            filename_to_checksum.add(absfile=absfile, checksum=checksum)
+            #cur.execute("insert into filename_to_checksum values (?, ?)", (absfile, checksum))
+            #cur.execute("insert into filename_to_backupset values (?, ?)", (absfile, backupset))
+            #cur.execute("insert into checksum_to_backupset values (?, ?)", (checksum, backupset))
             # print(data["filedata"][absfile])
-        conn.commit()
+        #conn.commit()
+        #cur.execute("insert into backupsets_done values (?)", (backupset,))
+        #conn.commit()
+        filename_to_checksum.save(filename)
         print(" done")
 
 if __name__ == "__main__":
