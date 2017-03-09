@@ -4,6 +4,7 @@
 """
 command line program to search for files in stores webstorage archives
 """
+import os
 import time
 import sys
 import socket
@@ -15,6 +16,7 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 import json
 import sqlite3
 import dateutil.parser
+import mimetypes
 # own modules
 from webstorage import WebStorageArchive as WebStorageArchive
 
@@ -123,6 +125,8 @@ def update(filename):
     filename_to_checksum.load(filename)
     filename_to_backupset = NtoM("absfile", "backupset")
     filename_to_backupset.load(filename)
+    mime_to_absfile = NtoM("mime_type", "absfile")
+    mime_to_absfile.load(filename)
     backupsets_done = [row[0] for row in cur.execute("select backupset from backupsets_done").fetchall()]
     for backupset in backupsets:
         starttime = time.time()
@@ -135,6 +139,9 @@ def update(filename):
         print(hostname, tag, dateutil.parser.parse(isoformat))
         data = wsa.get(backupset)
         for absfile in data["filedata"].keys():
+            mime_type, content_encoding = mimetypes.guess_type(absfile)
+            if mime_type is not None:
+                mime_to_absfile.add(absfile=absfile, mime_type=mime_type)
             checksum = data["filedata"][absfile]["checksum"]
             filename_to_checksum.add(absfile=absfile, checksum=checksum)
             filename_to_backupset.add(absfile=absfile, backupset=backupset)
@@ -143,6 +150,7 @@ def update(filename):
         logging.info(" done in %0.2f s", time.time()-starttime)
     filename_to_checksum.save(filename)
     filename_to_backupset.save(filename)
+    mime_to_absfile.save(filename)
 
 
 def search_name(filename, pattern, exact):
@@ -185,6 +193,21 @@ def search_checksum(filename, pattern):
                 logging.info("\t\tfound in %s", backupset)
     logging.info("found %d occurances", len(data))
 
+def search_mime_type(filename, pattern):
+    """
+    search for some pattern in database, exact or like
+    """
+    this_pattern = pattern
+    logging.debug("searching for pattern %s", this_pattern)
+    conn = sqlite3.connect(filename)
+    cur = conn.cursor()
+    data = cur.execute("select mime_type, absfile from mime_type_to_absfile where mime_type=?", (this_pattern,)).fetchall()
+    for row in data:
+        logging.info(row[0])
+        for absfile in json.loads(row[1]):
+            logging.info("\t%s", absfile)
+    logging.info("found %d occurances", len(data))
+
 
 def main():
     """
@@ -194,18 +217,27 @@ def main():
     parser.add_argument("--update", action="store_true", default=False, help="create or update local index database", required=False)
     parser.add_argument("-c", "--checksum", help="search for checksum", required=False)
     parser.add_argument("-n", '--name', help="search for name", required=False)
+    parser.add_argument("-m", '--mime-type', help="search by mime-type", required=False)
     parser.add_argument("-b", '--backupset', help="search for backupset", required=False)
     parser.add_argument("-x", '--exact', action="store_true", default=False, help="dont use wildcard search, use the provided argument exactly", required=False)
-    parser.add_argument('-d', '--database', default="webarchiveindex.db", help="sqlite3 database to use", required=False)
+    parser.add_argument('-d', '--database', default="~/.webstorage/searchindex.db", help="sqlite3 database to use", required=False)
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
     args = parser.parse_args()
+    database = os.path.expanduser(args.database) # expand user directory in path
+    if os.path.isfile(database):
+        logging.info("using database %s", database)
+    else:
+        logging.info("first use, creating database %s, you should run --update first", database)
     if args.update is True:
-        update(args.database)
+        update(database)
     if args.name is not None:
-        search_name(args.database, args.name, args.exact)
+        search_name(database, args.name, args.exact)
     elif args.checksum is not None:
-        search_checksum(args.database, args.checksum)
+        search_checksum(database, args.checksum)
+    elif args.mime_type is not None:
+        search_mime_type(database, args.mime_type)
+
 
 if __name__ == "__main__":
     main()
