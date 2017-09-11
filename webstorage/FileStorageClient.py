@@ -53,6 +53,7 @@ class FileStorageClient(object):
         self.__headers = {
             "x-auth-token" : CONFIG["APIKEY_FILESTORAGE"]
         }
+        self.__logger = logging.getLogger("FileStorageClient")
         self.__info()
 
     @property
@@ -79,7 +80,7 @@ class FileStorageClient(object):
             raise Exception("only hashfunc sha1 implemented yet")
         # checksum cache
         if self.__cache is True:
-            logging.info("Getting list of stored checksums from FileStorageBackend, this could take some time")
+            self.__logger.info("Getting list of stored checksums from FileStorageBackend, this could take some time")
             self.__init_cache_checksums()
 
     def __get_url(self, arg=None):
@@ -118,25 +119,25 @@ class FileStorageClient(object):
             if not self.__bs.exists(blockhash.hexdigest()):
                 checksum, status = self.__bs.put(data)
                 assert checksum == blockhash.hexdigest()
-                logging.debug("PUT blockcount: %d, checksum: %s, status: %s", len(metadata["blockchain"]), checksum, status)
+                self.__logger.debug("PUT blockcount: %d, checksum: %s, status: %s", len(metadata["blockchain"]), checksum, status)
             else:
                 metadata["blockhash_exists"] += 1
             metadata["blockchain"].append(blockhash.hexdigest())
             data = fh.read(self.__bs.blocksize)
-        logging.debug("put %d blocks in BlockStorage, %d existed already", len(metadata["blockchain"]), metadata["blockhash_exists"])
+        self.__logger.debug("put %d blocks in BlockStorage, %d existed already", len(metadata["blockchain"]), metadata["blockhash_exists"])
         # File Checksum
         metadata["checksum"] = filehash.hexdigest()
         if self.exists(filehash.hexdigest()) is not True: # check if filehash is already stored
-            logging.debug("storing recipe for filechecksum: %s", metadata["checksum"])
+            self.__logger.debug("storing recipe for filechecksum: %s", metadata["checksum"])
             res = self.__session.put(self.__get_url(metadata["checksum"]), data=json.dumps(metadata), headers=self.__headers)
             if res.status_code in (200, 201):
                 if res.status_code == 201: # could only be true at some rare race conditions
-                    logging.debug("recipe for checksum %s exists already", metadata["checksum"])
+                    self.__logger.debug("recipe for checksum %s exists already", metadata["checksum"])
                     metadata["filehash_exists"] = True
                 return metadata
             raise HTTPError("webapplication returned status %s" % res.status_code)
         else:
-            logging.debug("filehash %s already stored", filehash.hexdigest())
+            self.__logger.debug("filehash %s already stored", filehash.hexdigest())
             metadata["filehash_exists"] = True
             return metadata
 
@@ -147,7 +148,7 @@ class FileStorageClient(object):
         the last block is almoust all times less than self.blocksize
         """
         url = self.__get_url(checksum)
-        logging.debug("GET %s", url)
+        self.__logger.debug("GET %s", url)
         res = self.__session.get(url, headers=self.__headers)
         if res.status_code == 200:
             metadata = res.json()
@@ -162,7 +163,7 @@ class FileStorageClient(object):
         the unerlying data in BlockStorage will not be deleted
         """
         url = self.__get_url(checksum)
-        logging.debug("DELETE %s", url)
+        self.__logger.debug("DELETE %s", url)
         res = self.__session.delete(url, headers=self.__headers)
         if res.status_code != 200:
             raise HTTP404("webapplication returned status %s" % res.status_code)
@@ -174,7 +175,7 @@ class FileStorageClient(object):
         this is not the data of this file, only the plan how to assemble the file
         """
         url = self.__get_url(checksum)
-        logging.debug("GET %s", url)
+        self.__logger.debug("GET %s", url)
         res = self.__session.get(url, headers=self.__headers)
         if res.status_code == 200:
             return res.json()
@@ -186,7 +187,7 @@ class FileStorageClient(object):
         return list of hexdigests stored in FileStorage
         """
         url = self.__get_url()
-        logging.debug("GET %s", url)
+        self.__logger.debug("GET %s", url)
         res = self.__session.get(url, headers=self.__headers)
         if res.status_code == 200:
             return res.json()
@@ -198,7 +199,7 @@ class FileStorageClient(object):
         check if file defined by checksum is already stored
         """
         url = self.__get_url(checksum)
-        logging.debug("OPTIONS %s", url)
+        self.__logger.debug("OPTIONS %s", url)
         res = self.__session.options(url, headers=self.__headers)
         if res.status_code == 200:
             return True
@@ -223,7 +224,7 @@ class FileStorageClient(object):
     def __init_cache_checksums(self):
         """create caches"""
         url = self.__get_url()
-        logging.debug("GET %s", url)
+        self.__logger.debug("GET %s", url)
         res = self.__session.get(url, headers=self.__headers)
         if res.status_code == 200:
             # hack to work also on earlier versions of python 3
@@ -232,6 +233,6 @@ class FileStorageClient(object):
             except TypeError:
                 self.__cache_checksums = set(res.json())
         else:
-            logging.error("Failure to get stored checksum from FileStorage Backend, status %s", res.status_code)
+            self.__logger.error("Failure to get stored checksum from FileStorage Backend, status %s", res.status_code)
 
 

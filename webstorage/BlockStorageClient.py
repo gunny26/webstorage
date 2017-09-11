@@ -45,6 +45,7 @@ class BlockStorageClient(object):
         self.__headers = {
             "x-auth-token" : CONFIG["APIKEY_BLOCKSTORAGE"]
         }
+        self.__logger = logging.getLogger("BlockStorageClient")
         self.__info()
 
     def __info(self):
@@ -65,7 +66,7 @@ class BlockStorageClient(object):
             raise Exception("only sha1 hashfunc implemented yet")
         # checksum cache
         if self.__cache is True:
-            logging.info("Getting list of stored checksums from BlockStorageBackend, this could take some time")
+            self.__logger.info("Getting list of stored checksums from BlockStorageBackend, this could take some time")
             self.__init_cache_checksums()
 
     def __get_url(self, arg=None):
@@ -89,11 +90,11 @@ class BlockStorageClient(object):
         digest.update(data)
         checksum = digest.hexdigest()
         url = self.__get_url(checksum)
-        logging.debug("PUT %s", url)
+        self.__logger.debug("PUT %s", url)
         res = self.__session.put(self.__get_url(checksum), data=data, headers=self.__headers)
         if res.status_code in (200, 201):
             if res.status_code == 201:
-                logging.info("block existed, but rewritten")
+                self.__logger.info("block existed, but rewritten")
             assert res.text == checksum
             return res.text, res.status_code
         raise HTTPError("call to %s delivered status %s" % (self.__get_url(), res.status_code))
@@ -101,7 +102,7 @@ class BlockStorageClient(object):
     def get(self, checksum):
         """get data defined by hexdigest from storage"""
         url = self.__get_url(checksum)
-        logging.debug("GET %s", url)
+        self.__logger.debug("GET %s", url)
         res = self.__session.get(self.__get_url(checksum), headers=self.__headers)
         if res.status_code == 404:
             raise HTTP404("block with checksum %s does not exist" % checksum)
@@ -110,7 +111,7 @@ class BlockStorageClient(object):
     def delete(self, checksum):
         """delete data defined by hexdigest from storage"""
         url = self.__get_url(checksum)
-        logging.debug("DELETE %s", url)
+        self.__logger.debug("DELETE %s", url)
         res = self.__session.delete(url, headers=self.__headers)
         if res.status_code == 404:
             raise HTTP404("block with checksum %s does not exist" % checksum)
@@ -118,7 +119,7 @@ class BlockStorageClient(object):
     def list(self):
         """return all availabel data defined by hexdigest as list of hexdigests"""
         url = self.__get_url()
-        logging.debug("GET %s", url)
+        self.__logger.debug("GET %s", url)
         res = self.__session.get(url, headers=self.__headers)
         if res.status_code == 200:
             return res.json()
@@ -127,7 +128,7 @@ class BlockStorageClient(object):
     def exists_nocache(self, checksum):
         """check if data defined by hexdigest exists"""
         url = self.__get_url(checksum)
-        logging.debug("OPTIONS %s", url)
+        self.__logger.debug("OPTIONS %s", url)
         res = self.__session.options(url, headers=self.__headers)
         if res.status_code == 200:
             return True
@@ -150,7 +151,7 @@ class BlockStorageClient(object):
     def __init_cache_checksums(self):
         """initialize cache"""
         url = self.__get_url()
-        logging.debug("GET %s", url)
+        self.__logger.debug("GET %s", url)
         res = self.__session.get(url, headers=self.__headers)
         if res.status_code == 200:
             # hack to work also on earlier versions of python 3
@@ -159,5 +160,5 @@ class BlockStorageClient(object):
             except TypeError:
                 self.__cache_checksums = set(res.json)
         else:
-            logging.error("Failure to get stored checksum from FileStorage Backend, status %s", res.status_code)
+            self.__logger.error("Failure to get stored checksum from FileStorage Backend, status %s", res.status_code)
 
