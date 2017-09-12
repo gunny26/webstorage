@@ -7,6 +7,7 @@ command line program to search for files in stores webstorage archives
 import os
 import io
 import time
+import datetime
 import sys
 import socket
 import argparse
@@ -33,24 +34,28 @@ class Associator(object):
 
     def __init__(self):
         self.__data = {}
-        self.__whitelist = ("Make", "Model", "ExifImageHeight", "ExifImageWidth", "Date", "Year")
+        self.__whitelist = ("Make", "Model", "ExifImageHeight", "ExifImageWidth", "Date", "Year", "Month", "DayOfMonth", "Weekday", "Keywords")
 
     def add(self, key, v_dict):
         for v_key, v_value in v_dict.items():
-            if v_key not in self.__whitelist:
-                continue
-            if v_key in self.__data.keys():
-                if v_value in self.__data[v_key].keys():
-                    if key not in self.__data[v_key][v_value]:
-                        self.__data[v_key][v_value].append(key)
-                    else:
-                        print("key already exists")
-                else:
-                    self.__data[v_key][v_value] = [key, ]
+            if isinstance(v_value, list):
+                for entry in v_value:
+                    self.add(key, {v_key : entry})
             else:
-                self.__data[v_key] = {
-                        v_value : [key, ]
-                }
+                if v_key not in self.__whitelist:
+                    continue
+                if v_key in self.__data.keys():
+                    if v_value in self.__data[v_key].keys():
+                        if key not in self.__data[v_key][v_value]:
+                            self.__data[v_key][v_value].append(key)
+                        else:
+                            print("key already exists")
+                    else:
+                        self.__data[v_key][v_value] = [key, ]
+                else:
+                    self.__data[v_key] = {
+                            v_value : [key, ]
+                    }
 
     def keys(self):
         return self.__data.keys()
@@ -62,7 +67,9 @@ class Associator(object):
         json.dump(self.__data, open(filename, "w"), indent=4)
 
     def load(self, filename):
+        startts = time.time()
         self.__data = json.load(open(filename, "r"))
+        print("load done in %0.6fs" % (time.time() - startts))
 
 
 class ImageDb(object):
@@ -74,6 +81,9 @@ class ImageDb(object):
             self.__key1 : {},
             self.__key2 : {}
         }
+
+    def __len__(self):
+        return max(len(self.__data[self.__key1]), len(self.__data[self.__key2]))
 
     def add(self, value1, value2):
         if value1 not in self.__data[self.__key1].keys():
@@ -89,7 +99,9 @@ class ImageDb(object):
         json.dump(self.__data, open(filename, "w"), indent=4)
 
     def load(self, filename):
+        startts = time.time()
         self.__data = json.load(open(filename, "r"))
+        print("load done in %0.6fs" % (time.time() - startts))
 
     def exists(self, key, value):
         assert key in (self.__key1, self.__key2)
@@ -104,6 +116,7 @@ def search(filename, pattern):
     imagedb = ImageDb("md5", "sha256")
     if os.path.isfile("imagedb_test.json"):
         imagedb.load("imagedb_test.json")
+    print(len(imagedb))
     assi = Associator()
     if os.path.isfile("assi_test.json"):
         assi.load("assi_test.json")
@@ -152,7 +165,10 @@ def search(filename, pattern):
                 i_sha256.update(image.tobytes())
                 # get exif data if available
                 exif_data = image._getexif()
-                exif = {}
+                exif = {
+                    "ExifImageHeight" : image.height,
+                    "ExifImageWidth" : image.width
+                    }
                 if exif_data is not None:
                     exif = {PIL.ExifTags.TAGS[k]: v for k, v in exif_data.items() if k in PIL.ExifTags.TAGS}
                     if "GPSInfo" in exif.keys():
@@ -164,9 +180,12 @@ def search(filename, pattern):
                 # add ipct tags, if available
                 ipct_data = PIL.IptcImagePlugin.getiptcinfo(image)
                 if ipct_data is not None:
-                    print(ipct_data)
-                    if (2, 25) in ipct_data:
-                        exif["Keywords"] = ipct_data[(2, 25)]
+                    if (2, 25) in ipct_data.keys():
+                        if isinstance(ipct_data[(2, 25)], list):
+                            exif["Keywords"] = [entry.decode("utf-8") for entry in ipct_data[(2, 25)]]
+                        else:
+                            exif["Keywords"] = ipct_data[(2, 25)].decode("utf-8")
+                    print(exif["Keywords"])
                 #for key in sorted(exif.keys()):
                 #    if key in ("MakerNote", "GPSInfo"):
                 #        continue
@@ -174,7 +193,10 @@ def search(filename, pattern):
                 if "DateTimeOriginal" in exif.keys():
                     # type str looks like 2014:08:10 14:39:13
                     exif["Date"] = exif["DateTimeOriginal"].split(" ")[0].replace(":", "-")
-                    exif["Year"] = exif["DateTimeOriginal"].split(":")[0]
+                    exif["Year"] = int(exif["Date"].split("-")[0])
+                    exif["Month"] = int(exif["Date"].split("-")[1])
+                    exif["DayOfMonth"] = int(exif["Date"].split("-")[2])
+                    exif["Weekday"] = datetime.date(exif["Year"], exif["Month"], exif["DayOfMonth"]).weekday()
                 assi.add(i_sha256.hexdigest(), exif)
                 imagedb.add(checksum, i_sha256.hexdigest())
                 counter += 1
