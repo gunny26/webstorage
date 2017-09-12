@@ -28,11 +28,12 @@ import PIL.IptcImagePlugin
 from webstorage import WebStorageArchive as WebStorageArchive
 from webstorage import FileStorageClient as FileStorageClient
 
+
 class Associator(object):
 
     def __init__(self):
         self.__data = {}
-        self.__whitelist = ("DateTimeOriginal", "Make", "Model", "ExifImageHeight", "ExifImageWidth")
+        self.__whitelist = ("Make", "Model", "ExifImageHeight", "ExifImageWidth", "Date", "Year")
 
     def add(self, key, v_dict):
         for v_key, v_value in v_dict.items():
@@ -40,7 +41,10 @@ class Associator(object):
                 continue
             if v_key in self.__data.keys():
                 if v_value in self.__data[v_key].keys():
-                    self.__data[v_key][v_value].append(key)
+                    if key not in self.__data[v_key][v_value]:
+                        self.__data[v_key][v_value].append(key)
+                    else:
+                        print("key already exists")
                 else:
                     self.__data[v_key][v_value] = [key, ]
             else:
@@ -48,15 +52,61 @@ class Associator(object):
                         v_value : [key, ]
                 }
 
-    def __str__(self):
-        return str(self.__data)
+    def keys(self):
+        return self.__data.keys()
+
+    def __getitem__(self, v_key):
+        return self.__data[v_key]
+
+    def save(self, filename):
+        json.dump(self.__data, open(filename, "w"), indent=4)
+
+    def load(self, filename):
+        self.__data = json.load(open(filename, "r"))
+
+
+class ImageDb(object):
+
+    def __init__(self, key1, key2):
+        self.__key1 = key1
+        self.__key2 = key2
+        self.__data = {
+            self.__key1 : {},
+            self.__key2 : {}
+        }
+
+    def add(self, value1, value2):
+        if value1 not in self.__data[self.__key1].keys():
+            self.__data[self.__key1][value1] = []
+            if value2 not in self.__data[self.__key1][value1]:
+                self.__data[self.__key1][value1].append(value2)
+        if value2 not in self.__data[self.__key2].keys():
+            self.__data[self.__key2][value2] = []
+            if value1 not in self.__data[self.__key2][value2]:
+                self.__data[self.__key2][value2].append(value1)
+
+    def save(self, filename):
+        json.dump(self.__data, open(filename, "w"), indent=4)
+
+    def load(self, filename):
+        self.__data = json.load(open(filename, "r"))
+
+    def exists(self, key, value):
+        assert key in (self.__key1, self.__key2)
+        return value in self.__data[key].keys()
+
 
 def search(filename, pattern):
     """
     search for some pattern in database, exact or like
     """
     fs = FileStorageClient()
+    imagedb = ImageDb("md5", "sha256")
+    if os.path.isfile("imagedb_test.json"):
+        imagedb.load("imagedb_test.json")
     assi = Associator()
+    if os.path.isfile("assi_test.json"):
+        assi.load("assi_test.json")
     conn = sqlite3.connect(filename)
     cur = conn.cursor()
     sql_string = """
@@ -79,7 +129,13 @@ def search(filename, pattern):
         mime_type = eval(row[2])[0]
         if mime_type == "image/jpeg":
             print(checksum, absfile, mime_type)
+            if imagedb.exists("md5", checksum):
+                print("data already available, skipping this image")
+                continue
             image_io = io.BytesIO()
+            f_sha256 = hashlib.sha256()
+            f_sha256.update(image_io.read())
+            startts = time.time()
             for data in fs.read(checksum):
                 image_io.write(data)
             try:
@@ -87,41 +143,49 @@ def search(filename, pattern):
             except OSError as exc:
                 print(exc)
                 continue
-            f_sha256 = hashlib.sha256()
-            f_sha256.update(image_io.read())
-            print("File checksum : %s" % f_sha256.hexdigest())
             if image is not None:
-                print(image)
+                print("\timage load done in %0.6fs" %(time.time() - startts))
+                if min(image.size) < 1024:
+                    print("\tSkipping, this image seems to be to small")
+                    continue
                 i_sha256 = hashlib.sha256()
                 i_sha256.update(image.tobytes())
-                print("Pixel checksum : %s" % i_sha256.hexdigest())
+                # get exif data if available
                 exif_data = image._getexif()
                 exif = {}
                 if exif_data is not None:
                     exif = {PIL.ExifTags.TAGS[k]: v for k, v in exif_data.items() if k in PIL.ExifTags.TAGS}
-                    # exif = convert_exif_to_dict(exif_data)
                     if "GPSInfo" in exif.keys():
                         gpsinfo = {}
                         for key in exif['GPSInfo'].keys():
                             decode = PIL.ExifTags.GPSTAGS.get(key,key)
                             gpsinfo[decode] = exif['GPSInfo'][key]
                         exif.update(gpsinfo)
+                # add ipct tags, if available
                 ipct_data = PIL.IptcImagePlugin.getiptcinfo(image)
                 if ipct_data is not None:
                     print(ipct_data)
                     if (2, 25) in ipct_data:
                         exif["Keywords"] = ipct_data[(2, 25)]
-                for key in sorted(exif.keys()):
-                    if key in ("MakerNote", "GPSInfo"):
-                        continue
-                    print("\t%s : %s" % (key, exif[key]))
+                #for key in sorted(exif.keys()):
+                #    if key in ("MakerNote", "GPSInfo"):
+                #        continue
+                #    print("\t%s : %s" % (key, exif[key]))
+                if "DateTimeOriginal" in exif.keys():
+                    # type str looks like 2014:08:10 14:39:13
+                    exif["Date"] = exif["DateTimeOriginal"].split(" ")[0].replace(":", "-")
+                    exif["Year"] = exif["DateTimeOriginal"].split(":")[0]
                 assi.add(i_sha256.hexdigest(), exif)
+                imagedb.add(checksum, i_sha256.hexdigest())
                 counter += 1
-                print(counter)
-        if counter == 20:
+        if counter == 200:
             break
-    print(json.dumps(assi, indent=4))
-
+    assi.save("assi_test.json")
+    imagedb.save("imagedb_test.json")
+    for v_key in assi.keys():
+        print(v_key)
+        for value in assi[v_key].keys():
+            print("\t%s :%d" % (value, len(assi[v_key][value])))
 
 def main():
     """
