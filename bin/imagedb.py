@@ -40,6 +40,7 @@ class Associator(object):
             "Weekday", "Keywords","Orientation", "Hue", "Saturation", "Value")
         self.__filename = filename
         self.__autosave = autosave
+        self.__autosave_counter = autosave
 
     def add(self, key, v_dict):
         for v_key, v_value in v_dict.items():
@@ -62,10 +63,9 @@ class Associator(object):
                             v_value : [key, ]
                     }
                 # periodically save data to disc
-                self.__autosave -= 1
+                self.__autosave_counter -= 1
                 if self.__autosave == 0:
                     self.save()
-                    self.__autosave = 100
 
     def keys(self):
         return self.__data.keys()
@@ -75,11 +75,10 @@ class Associator(object):
 
     def save(self):
         json.dump(self.__data, open(self.__filename, "w"), indent=4)
+        self.__autosave_counter = self.__autosave
 
     def load(self):
-        startts = time.time()
         self.__data = json.load(open(self.__filename, "r"))
-        print("load done in %0.6fs" % (time.time() - startts))
 
 
 class PersistentNtoM(object):
@@ -93,6 +92,7 @@ class PersistentNtoM(object):
         }
         self.__filename = filename
         self.__autosave = autosave
+        self.__autosave_counter = autosave
 
     def __len__(self):
         return max(len(self.__data[self.__key1]), len(self.__data[self.__key2]))
@@ -106,18 +106,16 @@ class PersistentNtoM(object):
             self.__data[self.__key2][value2] = []
             if value1 not in self.__data[self.__key2][value2]:
                 self.__data[self.__key2][value2].append(value1)
-        self.__autosave -= 1
+        self.__autosave_counter -= 1
         if self.__autosave == 0:
             self.save()
-            self.__autosave = 100
 
     def save(self):
         json.dump(self.__data, open(self.__filename, "w"), indent=4)
+        self.__autosave_counter = self.__autosave
 
     def load(self):
-        startts = time.time()
         self.__data = json.load(open(self.__filename, "r"))
-        print("load done in %0.6fs" % (time.time() - startts))
 
     def exists(self, key, value):
         assert key in (self.__key1, self.__key2)
@@ -150,6 +148,7 @@ class PersistentList(object):
 
     def __len__(self):
         return len(self.__data)
+
 
 class PersistentDict(object):
 
@@ -191,7 +190,6 @@ def search(filename, pattern):
         skipped.load()
     if os.path.isfile("imagedb_test.json"):
         imagedb.load()
-    print(len(imagedb))
     assi = Associator("assi_test.json")
     if os.path.isfile("assi_test.json"):
         assi.load()
@@ -211,12 +209,11 @@ def search(filename, pattern):
     counter = 0
     for row in data:
         checksum = eval(row[0])[0]
+        absfile = row[1]
+        mime_type = eval(row[2])[0]
+        # start processing
         if checksum in skipped:
             continue
-        absfile = row[1]
-        #if absfile != "/home/mesznera/Bilder/2017/06/09/IMG_20170609_143842386_BURST009.jpg":
-        #    continue
-        mime_type = eval(row[2])[0]
         if mime_type == "image/jpeg":
             print(checksum, absfile, mime_type)
             if imagedb.exists("md5", checksum):
@@ -262,14 +259,14 @@ def search(filename, pattern):
                     meta.update({PIL.ExifTags.TAGS[k]: v for k, v in exif_data.items() if k in PIL.ExifTags.TAGS})
                     if "GPSInfo" in meta.keys():
                         gpsinfo = {}
-                        for key in meta['GPSInfo'].keys():
-                            decode = PIL.ExifTags.GPSTAGS.get(key,key)
-                            gpsinfo[decode] = meta['GPSInfo'][key]
+                        for key in meta["GPSInfo"].keys():
+                            decode = PIL.ExifTags.GPSTAGS.get(key, key)
+                            gpsinfo[decode] = meta["GPSInfo"][key]
                         meta.update(gpsinfo)
                         if "GPSLatitude" in meta:
                             def dms2dd(dms, direction=None):
                                 degrees, minutes, seconds = dms
-                                return float(degrees) + float(minutes)/60 + float(seconds)/(60*60);
+                                return float(degrees) + float(minutes) / 60 + float(seconds) / (60 * 60);
                                 #if direction == 'E' or direction == 'N':
                                 #    dd *= -1
                             meta["Latitude"] = dms2dd((float(value)/divisor for value, divisor in meta["GPSLatitude"]))
@@ -314,7 +311,7 @@ def search(filename, pattern):
                     gpsdb.add(str((meta["Latitude"], meta["Longitude"])), i_sha256.hexdigest())
                 print("\tgetting metadata and storing done in %0.6fs" % (time.time() - startts))
                 counter += 1
-                if counter == 20:
+                if counter == 200:
                     break
     assi.save()
     imagedb.save()
@@ -342,10 +339,6 @@ def main():
     database = os.path.expanduser(args.database) # expand user directory in path
     if os.path.isfile(database):
         logging.info("using database %s", database)
-    else:
-        logging.info("first use, creating database %s, you should run --update first", database)
-    if args.update is True:
-        update(database)
     search(database, "image/jpeg")
 
 
