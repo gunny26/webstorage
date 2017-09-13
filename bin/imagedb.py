@@ -35,7 +35,9 @@ class Associator(object):
 
     def __init__(self, filename, autosave=100):
         self.__data = {}
-        self.__whitelist = ("Make", "Model", "ExifImageHeight", "ExifImageWidth", "Date", "Year", "Month", "DayOfMonth", "Weekday", "Keywords", "Orientation")
+        self.__whitelist = ("Make", "Model", "ExifImageHeight",
+            "ExifImageWidth", "Date", "Year", "Month", "DayOfMonth",
+            "Weekday", "Keywords","Orientation", "Hue", "Saturation", "Value")
         self.__filename = filename
         self.__autosave = autosave
 
@@ -80,7 +82,7 @@ class Associator(object):
         print("load done in %0.6fs" % (time.time() - startts))
 
 
-class ImageDb(object):
+class PersistentNtoM(object):
 
     def __init__(self, key1, key2, filename, autosave=100):
         self.__key1 = key1
@@ -134,8 +136,41 @@ class PersistentList(object):
         self.__data.append(value)
         self.__autosave_counter -= 1
         if self.__autosave_counter == 0:
-            json.dump(self.__data, open(self.__filename, "w"))
-            self.__autosave_counter = self.__autosave
+            self.save()
+
+    def save(self):
+        json.dump(self.__data, open(self.__filename, "w"))
+        self.__autosave_counter = self.__autosave
+
+    def load(self):
+        self.__data = json.load(open(self.__filename, "r"))
+
+    def __getitem__(self, index):
+        return self.__data[index]
+
+    def __len__(self):
+        return len(self.__data)
+
+class PersistentDict(object):
+
+    def __init__(self, filename, autosave=10):
+        self.__filename = filename
+        self.__autosave = autosave
+        self.__autosave_counter = autosave
+        self.__data = {}
+
+    def __setitem__(self, key, value):
+        if key not in self.__data.keys():
+            self.__data[key] = [value, ]
+        else:
+            self.__data[key].append(value)
+        self.__autosave_counter -= 1
+        if self.__autosave_counter == 0:
+            self.save()
+
+    def save(self):
+        json.dump(self.__data, open(self.__filename, "w"))
+        self.__autosave_counter = self.__autosave
 
     def load(self):
         self.__data = json.load(open(self.__filename, "r"))
@@ -149,8 +184,9 @@ def search(filename, pattern):
     search for some pattern in database, exact or like
     """
     fs = FileStorageClient()
-    imagedb = ImageDb("md5", "sha256", "imagedb_test.json")
+    imagedb = PersistentNtoM("md5", "sha256", "imagedb_test.json")
     skipped = PersistentList("skipped_test.json")
+    gpsdb = PersistentNtoM("gps", "sha256", "gpsdb_test.json")
     if os.path.isfile("skipped_test.json"):
         skipped.load()
     if os.path.isfile("imagedb_test.json"):
@@ -172,6 +208,7 @@ def search(filename, pattern):
     where
         absfile_to_checksum.absfile = absfile_to_mime_type.absfile"""
     data = cur.execute(sql_string).fetchall()
+    counter = 0
     for row in data:
         checksum = eval(row[0])[0]
         if checksum in skipped:
@@ -203,6 +240,7 @@ def search(filename, pattern):
                 continue
             if image is not None:
                 print("\timage load done in %0.6fs" %(time.time() - startts))
+                startts = time.time()
                 if min(image.size) < 1024:
                     print("\tSkipping, this image seems to be to small")
                     skipped.append(checksum)
@@ -214,70 +252,81 @@ def search(filename, pattern):
                     print("\tSeems not to be an jpeg file, skipping")
                     skipped.append(checksum)
                     continue
-                exif_data = image._getexif()
-                exif = {
+                meta = {
                     "ExifImageHeight" : image.height,
                     "ExifImageWidth" : image.width
                     }
-                if image.height > image.width:
-                    exif["Orientation"] = "portrait"
-                elif image.height < image.width:
-                    exif["Orientation"] = "landscape"
-                else:
-                    exif["Orientation"] = "none"
+                # EXIF Data
+                exif_data = image._getexif()
                 if exif_data is not None:
-                    exif = {PIL.ExifTags.TAGS[k]: v for k, v in exif_data.items() if k in PIL.ExifTags.TAGS}
-                    if "GPSInfo" in exif.keys():
+                    meta.update({PIL.ExifTags.TAGS[k]: v for k, v in exif_data.items() if k in PIL.ExifTags.TAGS})
+                    if "GPSInfo" in meta.keys():
                         gpsinfo = {}
-                        for key in exif['GPSInfo'].keys():
+                        for key in meta['GPSInfo'].keys():
                             decode = PIL.ExifTags.GPSTAGS.get(key,key)
-                            gpsinfo[decode] = exif['GPSInfo'][key]
-                        exif.update(gpsinfo)
+                            gpsinfo[decode] = meta['GPSInfo'][key]
+                        meta.update(gpsinfo)
+                        if "GPSLatitude" in meta:
+                            def dms2dd(dms, direction=None):
+                                degrees, minutes, seconds = dms
+                                return float(degrees) + float(minutes)/60 + float(seconds)/(60*60);
+                                #if direction == 'E' or direction == 'N':
+                                #    dd *= -1
+                            meta["Latitude"] = dms2dd((float(value)/divisor for value, divisor in meta["GPSLatitude"]))
+                            meta["Longitude"] = dms2dd((float(value)/divisor for value, divisor in meta["GPSLongitude"]))
+                # orientation
+                if image.height > image.width:
+                    meta["Orientation"] = "portrait"
+                elif image.height < image.width:
+                    meta["Orientation"] = "landscape"
+                else:
+                    meta["Orientation"] = "none"
                 # add ipct tags, if available
                 ipct_data = PIL.IptcImagePlugin.getiptcinfo(image)
                 if ipct_data is not None:
                     if (2, 25) in ipct_data.keys():
                         if isinstance(ipct_data[(2, 25)], list):
-                            exif["Keywords"] = [entry.decode("utf-8") for entry in ipct_data[(2, 25)]]
+                            meta["Keywords"] = [entry.decode("utf-8") for entry in ipct_data[(2, 25)]]
                         else:
-                            exif["Keywords"] = ipct_data[(2, 25)].decode("utf-8")
-                        print(exif["Keywords"])
-                # GPS Part:
-                # GPSLatitude : ((47, 1), (15, 1), (379296, 10000))
-                # GPSLatitudeRef : N
-                # GPSLongitude : ((11, 1), (23, 1), (103632, 10000))
-                # GPSLongitudeRef : E
-                print(exif["GPSLatitude"])
-                print(exif["GPSLongitude"])
-                if "GPSLatitude" in exif:
-                    exif["Latitude"] = exif["GPSLatitude"][0][0] + exif["GPSLatitude"][1][0] / 100 + exif["GPSLatitude"][2][0] / 1000000
-                    exif["Longitude"] = exif["GPSLongitude"][0][0] + exif["GPSLongitude"][1][0] / 100 + exif["GPSLongitude"][2][0] / 1000000
-                if "DateTimeOriginal" in exif.keys():
+                            meta["Keywords"] = ipct_data[(2, 25)].decode("utf-8")
+                        # print(exif["Keywords"])
+                # date and time
+                if "DateTimeOriginal" in meta.keys():
                     # type str looks like 2014:08:10 14:39:13
-                    exif["Date"] = exif["DateTimeOriginal"].split(" ")[0].replace(":", "-")
-                    exif["Year"] = int(exif["Date"].split("-")[0])
-                    exif["Month"] = int(exif["Date"].split("-")[1])
-                    exif["DayOfMonth"] = int(exif["Date"].split("-")[2])
-                    exif["Weekday"] = datetime.date(exif["Year"], exif["Month"], exif["DayOfMonth"]).weekday()
-                startts = time.time()
+                    meta["Date"] = meta["DateTimeOriginal"].split(" ")[0].replace(":", "-")
+                    meta["Year"] = int(meta["Date"].split("-")[0])
+                    meta["Month"] = int(meta["Date"].split("-")[1])
+                    meta["DayOfMonth"] = int(meta["Date"].split("-")[2])
+                    meta["Weekday"] = datetime.date(meta["Year"], meta["Month"], meta["DayOfMonth"]).weekday()
                 image_hsv = image.resize((1,1)).convert("HSV")
-                print(image_hsv)
-                exif["Hue"], exif["Saturation"], exif["Value"] = image_hsv.getpixel((0,0))
-                print("\tmedium color of image is %s" % str(image_hsv.getpixel((0,0))))
-                print("\tduration to resize image %0.6fs" % (time.time() - startts))
+                # print(image_hsv)
+                meta["Hue"], meta["Saturation"], meta["Value"] = image_hsv.getpixel((0,0))
+                # print("\tmedium color of image is %s" % str(image_hsv.getpixel((0,0))))
+                # print("\tduration to resize image %0.6fs" % (time.time() - startts))
                 # print final exif information
-                for key in sorted(exif.keys()):
-                    if key in ("MakerNote", "GPSInfo"):
-                        continue
-                    print("\t%s : %s" % (key, exif[key]))
-                assi.add(i_sha256.hexdigest(), exif)
+                #for key in sorted(exif.keys()):
+                #    if key in ("MakerNote", "GPSInfo"):
+                #        continue
+                #    print("\t%s : %s" % (key, exif[key]))
+                assi.add(i_sha256.hexdigest(), meta)
                 imagedb.add(checksum, i_sha256.hexdigest())
+                if "Latitude" in meta.keys():
+                    gpsdb.add(str((meta["Latitude"], meta["Longitude"])), i_sha256.hexdigest())
+                print("\tgetting metadata and storing done in %0.6fs" % (time.time() - startts))
+                counter += 1
+                if counter == 20:
+                    break
     assi.save()
     imagedb.save()
+    gpsdb.save()
+    skipped.save()
     for v_key in assi.keys():
         print(v_key)
         for value in assi[v_key].keys():
             print("\t%s :%d" % (value, len(assi[v_key][value])))
+    print("image checksum to filestorage checksums %s" % len(imagedb))
+    print("image checksum to gps %s" % len(gpsdb))
+    print("skipped checksums %s" % len(skipped))
 
 def main():
     """
