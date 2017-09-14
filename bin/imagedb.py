@@ -37,7 +37,8 @@ class Associator(object):
         self.__data = {}
         self.__whitelist = ("Make", "Model", "ExifImageHeight",
             "ExifImageWidth", "Date", "Year", "Month", "DayOfMonth",
-            "Weekday", "Keywords","Orientation", "Hue", "Saturation", "Value")
+            "Weekday", "Keywords","Orientation", "ColorHue", "ColorSaturation", "ColorValue",
+            "HasGPSInfo", "TimeOfDay", "HasExifInfo", "HasIpctInfo")
         self.__filename = filename
         self.__autosave = autosave
         self.__autosave_counter = autosave
@@ -256,6 +257,7 @@ def search(filename, pattern):
                 # EXIF Data
                 exif_data = image._getexif()
                 if exif_data is not None:
+                    meta["HasEfixInfo"] = True
                     meta.update({PIL.ExifTags.TAGS[k]: v for k, v in exif_data.items() if k in PIL.ExifTags.TAGS})
                     if "GPSInfo" in meta.keys():
                         gpsinfo = {}
@@ -271,6 +273,11 @@ def search(filename, pattern):
                                 #    dd *= -1
                             meta["Latitude"] = dms2dd((float(value)/divisor for value, divisor in meta["GPSLatitude"]))
                             meta["Longitude"] = dms2dd((float(value)/divisor for value, divisor in meta["GPSLongitude"]))
+                        meta["HasGPSInfo"] = True
+                    else:
+                        meta["HasGPSInfo"] = False
+                else:
+                    meta["HasEfixInfo"] = False
                 # orientation
                 if image.height > image.width:
                     meta["Orientation"] = "portrait"
@@ -281,15 +288,32 @@ def search(filename, pattern):
                 # add ipct tags, if available
                 ipct_data = PIL.IptcImagePlugin.getiptcinfo(image)
                 if ipct_data is not None:
+                    meta["HasIpctInfo"] = True
                     if (2, 25) in ipct_data.keys():
                         if isinstance(ipct_data[(2, 25)], list):
                             meta["Keywords"] = [entry.decode("utf-8") for entry in ipct_data[(2, 25)]]
                         else:
                             meta["Keywords"] = ipct_data[(2, 25)].decode("utf-8")
                         # print(exif["Keywords"])
+                else:
+                    meta["HasIpctInfo"] = False
                 # date and time
                 if "DateTimeOriginal" in meta.keys():
                     # type str looks like 2014:08:10 14:39:13
+                    timeofday = meta["DateTimeOriginal"].split(" ")[1]
+                    hour = int(timeofday.split(":")[0])
+                    if hour < 6:
+                        meta["TimeOfDay"] = "Night"
+                    elif 6 <= hour < 10:
+                        meta["TimeOfDay"] = "Morning"
+                    elif 10 <= hour < 14:
+                        meta["TimeOfDay"] = "Midday"
+                    elif 14 <= hour < 18:
+                        meta["TimeOfDay"] = "Afternoon"
+                    elif 18 <= hour < 22:
+                        meta["TimeOfDay"] = "Evening"
+                    elif 22 <= hour:
+                        meta["TimeOfDay"] = "Night"
                     meta["Date"] = meta["DateTimeOriginal"].split(" ")[0].replace(":", "-")
                     meta["Year"] = int(meta["Date"].split("-")[0])
                     meta["Month"] = int(meta["Date"].split("-")[1])
@@ -297,7 +321,7 @@ def search(filename, pattern):
                     meta["Weekday"] = datetime.date(meta["Year"], meta["Month"], meta["DayOfMonth"]).weekday()
                 image_hsv = image.resize((1,1)).convert("HSV")
                 # print(image_hsv)
-                meta["Hue"], meta["Saturation"], meta["Value"] = image_hsv.getpixel((0,0))
+                meta["ColorHue"], meta["ColorSaturation"], meta["ColorValue"] = image_hsv.getpixel((0,0))
                 # print("\tmedium color of image is %s" % str(image_hsv.getpixel((0,0))))
                 # print("\tduration to resize image %0.6fs" % (time.time() - startts))
                 # print final exif information
@@ -311,8 +335,8 @@ def search(filename, pattern):
                     gpsdb.add(str((meta["Latitude"], meta["Longitude"])), i_sha256.hexdigest())
                 print("\tgetting metadata and storing done in %0.6fs" % (time.time() - startts))
                 counter += 1
-                if counter == 200:
-                    break
+                #if counter == 200:
+                #    break
     assi.save()
     imagedb.save()
     gpsdb.save()
