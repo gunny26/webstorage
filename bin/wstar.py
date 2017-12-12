@@ -343,7 +343,6 @@ def main():
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR", required=False)
     parser.add_argument('-v', "--verbose", action="store_true", help="switch to loglevel DEBUG", required=False)
     args = parser.parse_args()
-    logging.error(args)
     # set logging level
     if args.quiet is True:
         logging.getLogger("").setLevel(logging.ERROR)
