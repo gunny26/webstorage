@@ -49,3 +49,9 @@ mkdir $WEBSTORAGE/blockstorage
 chown www-run $WEBSTORAGE/blockstorage
 mkdir $WEBSTORAGE/filestorage
 chown www-run $WEBSTORAGE/filestorage
+
+# for singning webstorage archives, create private/public key pair
+openssl genrsa -out private.der 4096
+openssl rsa -in private.der -pubout -out public.der
+# for signing the private key is needed
+
