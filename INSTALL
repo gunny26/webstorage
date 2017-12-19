@@ -1,3 +1,5 @@
+# BACKEND Part
+#
 # on ubuntu 14.04.x or debian jessie
 #
 # first install apache2
@@ -50,8 +52,45 @@ chown www-run $WEBSTORAGE/blockstorage
 mkdir $WEBSTORAGE/filestorage
 chown www-run $WEBSTORAGE/filestorage
 
+
+#
+# to install client part only
+#
+# create ~/.webstorage/ directory
+# first get apikey for 
+
+BlockStorage
+FileStorage
+WebstorageArchive
+
+# create WenStorageArchive.ini file like this
+# /home/mesznera/.webstorage/WebStorageClient.ini 
+URL_BLOCKSTORAGE=https://host.domain/blockstorage
+APIKEY_BLOCKSTORAGE=65a7dfd9-3d41-4135-81ca-ffffffffffff
+URL_FILESTORAGE=https://host.domain/filestorage
+APIKEY_FILESTORAGE=65a7dfd9-3d41-4135-81ca-ffffffffffff
+URL_WEBSTORAGE_ARCHIVE=https://host.domain/webstoragearchive
+APIKEY_WEBSTORAGE_ARCHIVE=65a7dfd9-3d41-4135-81ca-ffffffffffff
+BLOCKSIZE=1048576
+
 # for singning webstorage archives, create private/public key pair
 openssl genrsa -out private.der 4096
 openssl rsa -in private.der -pubout -out public.der
 # for signing the private key is needed
 
+# maybe you want some basic exclude.txt file in .webstorage subdir like
+- /home/user/Downloads
+- /home/user/tmp
+- /home/user/.cache
+- /home/user/.config/chromium
+- /home/user/.mozilla/firefox
+- /home/user/.webstorage
+
+# then you should make the first backup, must be full backup
+python3 /home/user/gits/webstorage/bin/wstar_devel.py -c -p /home/user/ -e /home/user/.webstorage/exclude.txt
+
+# maybe you need some sort of batch file like
+#/bin/bash
+python3 /home/user/gits/webstorage/bin/wstar_devel.py -d -p /home/user/ -e /home/user/.webstorage/exclude.txt
+
+# this batchfile could b implmented as startup program
