@@ -90,17 +90,21 @@ class BlockStorageClient(object):
     def checksums(self):
         return self.__checksums
 
-    def put(self, data):
+    def put(self, data, use_cache=False):
         """put some arbitrary data into storage"""
         assert len(data) <= self.blocksize
         checksum = self.__blockdigest(data)
-        res = self.__request("put", checksum, data=data)
-        if res.status_code == 201:
-            self.__logger.info("block rewritten")
-        if res.text != checksum:
-            raise AssertionError("checksum mismatch, sent %s to save, but got %s from backend" % (checksum, res.text))
-        self.__checksums.add(checksum) # add to local cache
-        return res.text, res.status_code
+        if use_cache and checksum in self.__checksums:
+            self.__logger.info("202 - skip this block, checksum is in list of stored checksums")
+            return (checksum, 202)
+        else:
+            res = self.__request("put", checksum, data=data)
+            if res.status_code == 201:
+                self.__logger.info("201 - block rewritten")
+            if res.text != checksum:
+                raise AssertionError("checksum mismatch, sent %s to save, but got %s from backend" % (checksum, res.text))
+            self.__checksums.add(checksum) # add to local cache
+            return res.text, res.status_code
 
     def get(self, checksum, verify=False):
         """get data defined by hexdigest from storage"""

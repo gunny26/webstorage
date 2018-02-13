@@ -31,3 +31,6 @@ if __name__ == "__main__":
         print("calculated size ", size)
         assert digest.hexdigest() == filechecksum
         assert size == metadata["size"]
+    print("put some data in filestorage")
+    res = fs.put(open("test.dbm", "rb"))
+    print(res)

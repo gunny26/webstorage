@@ -122,15 +122,12 @@ class FileStorageClient(object):
         while data:
             metadata["size"] += len(data)
             filehash.update(data)
-            #TODO: prevent double digesting
-            blockdigest = self.__blockdigest(data)
-            if not self.__bs.exists(blockdigest):
-                checksum, status = self.__bs.put(data)
-                assert checksum == blockdigest
-                self.__logger.debug("PUT blockcount: %d, checksum: %s, status: %s", len(metadata["blockchain"]), checksum, status)
-            else:
+            checksum, status = self.__bs.put(data, use_cache=True)
+            self.__logger.debug("PUT blockcount: %d, checksum: %s, status: %s", len(metadata["blockchain"]), checksum, status)
+            # 202 - skipped, block in cache, 201 - rewritten, block existed
+            if status in (201, 202):
                 metadata["blockhash_exists"] += 1
-            metadata["blockchain"].append(blockdigest)
+            metadata["blockchain"].append(checksum)
             data = fh.read(self.__bs.blocksize)
         self.__logger.debug("put %d blocks in BlockStorage, %d existed already", len(metadata["blockchain"]), metadata["blockhash_exists"])
         # File Checksum

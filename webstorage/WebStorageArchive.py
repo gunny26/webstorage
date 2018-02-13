@@ -15,108 +15,105 @@ import requests
 CONFIG = {}
 HOMEPATH = os.path.expanduser("~/.webstorage")
 if not os.path.isdir(HOMEPATH):
-    print("first create INI file in directory {}".format(HOMEPATH))
+    print("create INI file in directory {}".format(HOMEPATH))
     sys.exit(1)
 else:
-    for line in open(os.path.join(HOMEPATH, "WebStorageClient.ini"), "r"):
-        key, value = line.strip().split("=")
-        CONFIG[key] = value
+    with open(os.path.join(HOMEPATH, "WebStorageClient.ini"), "rt") as infile:
+        for line in infile:
+            key, value = line.strip().split("=")
+            CONFIG[key] = value
 
 
-class HTTPError(Exception):
-    """indicates general exception"""
-    pass
-
-
-class HTTP404(Exception):
-    """indicates not found"""
-    pass
-
-
-class WebStorageArchive(object):
+class WebStorageArchiveClient(object):
     """
-    store and retrieve S3 Data, specific for WebStorageArchives
+    store and retrieve Data, specific for WebStorageArchives
     """
+
+    __version = "1.1"
 
     def __init__(self):
-        """
-        bucket <str> S3 bucket name
-        path <str> Path
-        """
+        """ __init__ """
+        self.__logger = logging.getLogger(self.__class__.__name__)
         self.__url = CONFIG["URL_WEBSTORAGE_ARCHIVE"]
         self.__session = requests.Session()
         self.__headers = {
-            "x-auth-token" : CONFIG["APIKEY_WEBSTORAGE_ARCHIVE"]
+            "user-agent": "%s-%s" % (self.__class__.__name__, self.__version),
+            "x-auth-token" : CONFIG["APIKEY_WEBSTORAGE_ARCHIVE"],
+            "x-apikey" : CONFIG["APIKEY_WEBSTORAGE_ARCHIVE"]
         }
+
+    def __request(self, method, path="", data=None):
+        """
+        single point of request
+        """
+        res = self.__session.request(method, "/".join((self.__url, path)), data=data, headers=self.__headers)
+        if 199 < res.status_code < 300:
+            return res
+        elif 399 < res.status_code < 500:
+            raise KeyError("HTTP_STATUS %s received" % res.status_code)
+        elif 499 < res.status_code < 600:
+            raise IOError("HTTP_STATUS %s received" % res.status_code)
+
+    def __get_json(self, path=""):
+        """
+        single point of json requests
+        """
+        res = self.__request("get", path)
+        # hack to be compatible with older requests versions
+        try:
+            return res.json()
+        except TypeError:
+            return res.json
 
     def get_backupsets(self, hostname):
         """
         return data of available backupsets for this specific hostname
         """
-        url = self.__url + "/"
-        logging.debug("GET %s", url)
-        res = self.__session.get(url, headers=self.__headers)
-        if res.status_code == 200:
-            result = {}
-            rex = re.compile(r"^(.+)_(.+)_(.+)\.wstar\.gz$")
-            for basename, value in res.json().items():
-                size = value["size"]
-                match = rex.match(basename)
-                if match is not None:
-                    thishostname = match.group(1)
-                    tag = match.group(2)
-                    timestamp = match.group(3)
-                    # 2016-10-25T20:23:17.782902
-                    thisdate, thistime = timestamp.split("T")
-                    thistime = thistime.split(".")[0]
-                    if hostname == thishostname:
-                        result[basename] = {
-                            "date": thisdate,
-                            "time" : thistime,
-                            "size" : size,
-                            "tag" : tag,
-                            "basename" : basename
-                        }
-            return result
-        else:
-            raise HTTP404("webapplication returned status %s" % res.status_code)
+        result = {}
+        rex = re.compile(r"^(.+)_(.+)_(.+)\.wstar\.gz$")
+        for basename, value in self.__get_json().items():
+            size = value["size"]
+            match = rex.match(basename)
+            if match is not None:
+                thishostname = match.group(1)
+                tag = match.group(2)
+                timestamp = match.group(3)
+                # 2016-10-25T20:23:17.782902
+                thisdate, thistime = timestamp.split("T")
+                thistime = thistime.split(".")[0]
+                if hostname == thishostname:
+                    result[basename] = {
+                        "date": thisdate,
+                        "time" : thistime,
+                        "size" : size,
+                        "tag" : tag,
+                        "basename" : basename
+                    }
 
     def get_latest_backupset(self, hostname):
         """
-        get the latest backupset stored on s3
+        get the latest backupset stored
 
         hostname <str>
         """
         backupsets = self.get_backupsets(hostname)
-        if len(backupsets) > 0:
+        if backupsets:
             latest = sorted(backupsets)[-1]
             filename = backupsets[latest]["basename"]
-            logging.info("latest backupset found %s", filename)
+            self.__logger.info("latest backupset found %s", filename)
             return filename
-        logging.error("no backupsets found")
+        self.__logger.error("no backupsets found")
 
     def get(self, filename):
         """
         return filename
         """
         filename64 = base64.b64encode(filename.encode("utf-8"))
-        url = "/".join((self.__url, filename64.decode("utf-8")))
-        logging.debug("GET %s", url)
-        res = self.__session.get(url, headers=self.__headers)
-        if res.status_code == 200:
-            return res.json()
-        else:
-            raise HTTP404("webapplication returned status %s" % res.status_code)
+        return self.__get_json(filename64.decode("utf-8"))
 
     def put(self, data, filename):
         """
         return filename
         """
         filename64 = base64.b64encode(filename.encode("utf-8"))
-        url = "/".join((self.__url, filename64.decode("utf-8")))
-        logging.debug("PUT %s", url)
-        res = self.__session.put(url, headers=self.__headers, data=json.dumps(data))
-        if res.status_code == 200:
-            return res
-        else:
-            raise HTTP404("webapplication returned status %s" % res.status_code)
+        return self.__request("put", filename64.decode("utf-8"), data=json.dumps(data))

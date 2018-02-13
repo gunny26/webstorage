@@ -40,7 +40,6 @@ def save_webstorage_archive(data, filename, private_key):
     add duration, checksum and signature to data,
     afterwards store in WebStorageArchive
     """
-    duration = data["stoptime"] - data["starttime"]
     # build sah256 checksum
     sha256 = hashlib.sha256()
     sha256.update(json.dumps(data, sort_keys=True).encode("utf-8"))
@@ -69,9 +68,6 @@ def main():
         logging.getLogger("").setLevel(logging.ERROR)
     if args.verbose is True:
         logging.getLogger("").setLevel(logging.DEBUG)
-    # exclude file pattern of given
-    myhostname = socket.gethostname()
-    wsa = WebStorageArchive()
     if not os.path.isfile(args.file):
         logging.error("file %s does not exist", args.file)
         sys.exit(1)
