@@ -36,7 +36,7 @@ def load_apikeys():
     """
     load APIKEYS from stored json file in user home directory
     """
-    apikeysfile = os.path.expanduser("~/filestorage_apikeys.json")
+    apikeysfile = os.path.expanduser("~/webstoragearchive_apikeys.json")
     if os.path.isfile(apikeysfile):
         global APIKEYS
         logging.error("loading APIKEYS from %s", apikeysfile)
@@ -117,8 +117,9 @@ class WebStorageArchive(object):
         """
         if len(args) == 0 or args == "":
             # return all files for this names hostname
-            path = os.path.join(CONFIG["STORAGE_DIR"])
+            path = os.path.join(CONFIG["STORAGE_DIR"], web.ctx.env.get("HTTP_X_AUTH_TOKEN"))
             ret_data = {}
+            logging.info("directory listing for client subdir %s", path)
             for filename in os.listdir(path):
                 absfile = os.path.join(path, filename)
                 ret_data[filename] = {
@@ -130,7 +131,7 @@ class WebStorageArchive(object):
             logging.debug("received b64encoded filename %s", args)
             filename = base64.b64decode(args)
             logging.debug("decoded filename %s", filename)
-            path = os.path.join(CONFIG["STORAGE_DIR"], filename)
+            path = os.path.join(CONFIG["STORAGE_DIR"], web.ctx.env.get("HTTP_X_AUTH_TOKEN"), filename)
             web.header('Content-Type', 'application/json')
             return gzip.open(path, "rb").read()
 
@@ -148,27 +149,12 @@ class WebStorageArchive(object):
             logging.debug("received b64encoded filename %s", args)
             filename = base64.b64decode(args)
             logging.debug("decoded filename %s", filename)
-            path = os.path.join(CONFIG["STORAGE_DIR"], filename)
+            path = os.path.join(CONFIG["STORAGE_DIR"], web.ctx.env.get("HTTP_X_AUTH_TOKEN"), filename)
             if os.path.isfile(path):
                 logging.info("file %s exists already, not allowed", filename)
                 raise web.notauthorized()
             else:
                 gzip.open(path, "wb").write(data)
-
-    @authenticator
-    @calllogger
-    def NODELETE(self, args):
-        """
-        delete nemd file
-        """
-        checksum = args.split("/")[0]
-        assert len(checksum) == self.maxlength
-        logging.debug("DELETE called, checksum=%s", checksum)
-        if os.path.isfile(self.__get_filename(checksum)):
-            os.unlink(self.__get_filename(checksum))
-        else:
-            web.notfound()
-
 
 if __name__ == "__main__":
     load_config()
