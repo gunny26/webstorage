@@ -9,9 +9,12 @@ import logging
 FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
 logging.basicConfig(level=logging.INFO, format=FORMAT)
 import json
+# own modules
+from webstorage import BlockStorageClient as BlockStorageClient
 
 urls = (
     "/info", "FileStorageInfo",
+    "/download/(.*)", "FileStorageDownload",
     "/(.*)", "FileStorage",
 )
 
@@ -113,6 +116,60 @@ class FileStorageInfo(object):
             "hashfunc" : CONFIG["HASHFUNC"],
             })
 
+
+class FileStorageDownload(object):
+    """
+    return inforamtions about FileStorage
+    """
+    def __init__(self):
+        """__init__"""
+        self.logger = logging.getLogger(self.__class__.__name__)
+        if not os.path.exists(CONFIG["STORAGE_DIR"]):
+            self.logger.error("creating directory %s", CONFIG["STORAGE_DIR"])
+            os.mkdir(STORAGE_DIR)
+        if CONFIG["HASHFUNC"] == "sha1":
+            self.maxlength = 40 # lenght of sha1 checksum
+        else:
+            raise StandardError("only sha1 checksums are implemented yet")
+
+    def __get_filename(self, checksum):
+        return os.path.join(CONFIG["STORAGE_DIR"], "%s.json" % checksum)
+
+    def GET(self, parameters):
+        """
+        get some statistical data from FileStorage
+        """
+        self.logger.info("calling %s", parameters)
+        args = parameters.strip("/").split("/")
+        file_checksum = args[0]
+        if os.path.isfile(self.__get_filename(file_checksum)):
+            self.logger.info("found file with checksum %s", file_checksum)
+            web.header('Content-Type', 'application/octet-stream')
+            web.header('Transfer-Encoding', 'chunked')
+            # omit Content-Length
+            # disable compression of apache or other webservers
+            with open(self.__get_filename(file_checksum), "rb") as recipe:
+                data = json.loads(recipe.read())
+                bsc = BlockStorageClient(cache=False)
+                total_size = 0
+                if len(data["blockchain"]) == 1:
+                    total_size = len(bsc.get(data["blockchain"][0]))
+                else:
+                    total_size = bsc.blocksize * (len(data["blockchain"]) - 1) + len(bsc.get(data["blockchain"][-1]))
+                # web.header('Content-Length', total_size)
+                self.logger.info("returning %d blocks, total_length=%d", len(data["blockchain"]), total_size)
+                for block_checksum in data["blockchain"]:
+                    # goto : https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Transfer-Encoding
+                    block = bsc.get(block_checksum)
+                    # web.header('Content-Length', str(len(block)))
+                    self.logger.info("yielding block %s", block_checksum)
+                    prefix = "%x\r\n" % len(block)
+                    yield prefix + block + "\r\n"
+                # sending end of stream information
+                yield "0\r\n" + "\r\n"
+        else:
+            logging.error("File with checksum %s does not exist", self.__get_filename(checksum))
+            web.notfound()
 
 class FileStorage(object):
     """Stores Chunks of Data into Blockstorage Directory with md5 as filename and identifier"""
