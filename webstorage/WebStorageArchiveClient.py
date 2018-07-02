@@ -10,18 +10,8 @@ import json
 import logging
 import base64
 import requests
-
-
-CONFIG = {}
-HOMEPATH = os.path.expanduser("~/.webstorage")
-if not os.path.isdir(HOMEPATH):
-    print("create INI file in directory {}".format(HOMEPATH))
-    sys.exit(1)
-else:
-    with open(os.path.join(HOMEPATH, "WebStorageClient.ini"), "rt") as infile:
-        for line in infile:
-            key, value = line.strip().split("=")
-            CONFIG[key] = value
+# own modules
+from Config import get_config
 
 
 class WebStorageArchiveClient(object):
@@ -34,19 +24,26 @@ class WebStorageArchiveClient(object):
     def __init__(self):
         """ __init__ """
         self.__logger = logging.getLogger(self.__class__.__name__)
-        self.__url = CONFIG["URL_WEBSTORAGE_ARCHIVE"]
+        config = get_config()
+        self.__url = config["URL_WEBSTORAGE_ARCHIVE"]
         self.__session = requests.Session()
         self.__headers = {
             "user-agent": "%s-%s" % (self.__class__.__name__, self.__version),
-            "x-auth-token" : CONFIG["APIKEY_WEBSTORAGE_ARCHIVE"],
-            "x-apikey" : CONFIG["APIKEY_WEBSTORAGE_ARCHIVE"]
+            "x-auth-token" : config["APIKEY_WEBSTORAGE_ARCHIVE"],
+            "x-apikey" : config["APIKEY_WEBSTORAGE_ARCHIVE"]
         }
+        # if HTTPS_PROXY is set in config file use this information
+        if "HTTPS_PROXY" in config:
+            self.__proxies = {"https": config["HTTPS_PROXY"]}
+            self.__logger.debug("using HTTPS_PROXY %s", self.__proxies)
+        else:
+            self.__proxies = {}
 
     def __request(self, method, path="", data=None):
         """
         single point of request
         """
-        res = self.__session.request(method, "/".join((self.__url, path)), data=data, headers=self.__headers)
+        res = self.__session.request(method, "/".join((self.__url, path)), data=data, headers=self.__headers, proxies=self.__proxies)
         if 199 < res.status_code < 300:
             return res
         elif 399 < res.status_code < 500:

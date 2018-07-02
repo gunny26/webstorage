@@ -8,17 +8,8 @@ import sys
 import hashlib
 import logging
 import requests
-
-CONFIG = {}
-HOMEPATH = os.path.expanduser("~/.webstorage")
-if not os.path.isdir(HOMEPATH):
-    print("please create directory {}".format(HOMEPATH))
-    sys.exit(1)
-else:
-    with open(os.path.join(HOMEPATH, "WebStorageClient.ini"), "rt") as infile:
-        for line in infile:
-            key, value = line.strip().split("=")
-            CONFIG[key] = value
+# own modules
+from Config import get_config
 
 
 class BlockStorageClient(object):
@@ -28,14 +19,21 @@ class BlockStorageClient(object):
 
     def __init__(self, cache=True):
         """__init__"""
+        config = get_config()
         self.__logger = logging.getLogger(self.__class__.__name__)
-        self.__url = CONFIG["URL_BLOCKSTORAGE"]
+        self.__url = config["URL_BLOCKSTORAGE"]
         self.__session = requests.Session()
         self.__headers = {
             "user-agent": "%s-%s" % (self.__class__.__name__, self.__version),
-            "x-auth-token" : CONFIG["APIKEY_BLOCKSTORAGE"],
-            "x-apikey" : CONFIG["APIKEY_BLOCKSTORAGE"]
+            "x-auth-token" : config["APIKEY_BLOCKSTORAGE"],
+            "x-apikey" : config["APIKEY_BLOCKSTORAGE"]
         }
+        # if HTTPS_PROXY is set in config file use this information
+        if "HTTPS_PROXY" in config:
+            self.__proxies = {"https": config["HTTPS_PROXY"]}
+            self.__logger.debug("using HTTPS_PROXY %s", self.__proxies)
+        else:
+            self.__proxies = {}
         # get info from backend
         info = self.__get_json("info")
         self.__blocksize = int(info["blocksize"])
@@ -51,7 +49,7 @@ class BlockStorageClient(object):
         """
         single point of request
         """
-        res = self.__session.request(method, "/".join((self.__url, path)), data=data, headers=self.__headers)
+        res = self.__session.request(method, "/".join((self.__url, path)), data=data, headers=self.__headers, proxies=self.__proxies)
         if 199 < res.status_code < 300:
             return res
         elif 399 < res.status_code < 500:

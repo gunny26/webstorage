@@ -11,18 +11,7 @@ import logging
 import requests
 # own modules
 from BlockStorageClient import BlockStorageClient as BlockStorageClient
-
-
-CONFIG = {}
-HOMEPATH = os.path.expanduser("~/.webstorage")
-if not os.path.isdir(HOMEPATH):
-    print("first create INI file in directory {}".format(HOMEPATH))
-    sys.exit(1)
-else:
-    with open(os.path.join(HOMEPATH, "WebStorageClient.ini"), "rt") as infile:
-        for line in infile:
-            key, value = line.strip().split("=")
-            CONFIG[key] = value
+from Config import get_config
 
 
 class FileStorageClient(object):
@@ -35,15 +24,22 @@ class FileStorageClient(object):
 
     def __init__(self, cache=True):
         """__init__"""
+        config = get_config()
         self.__logger = logging.getLogger(self.__class__.__name__)
-        self.__url = CONFIG["URL_FILESTORAGE"]
+        self.__url = config["URL_FILESTORAGE"]
         self.__bs = BlockStorageClient(cache)
         self.__session = requests.Session()
         self.__headers = {
             "user-agent": "%s-%s" % (self.__class__.__name__, self.__version),
-            "x-auth-token" : CONFIG["APIKEY_FILESTORAGE"],
-            "x-apikey" : CONFIG["APIKEY_FILESTORAGE"]
+            "x-auth-token" : config["APIKEY_FILESTORAGE"],
+            "x-apikey" : config["APIKEY_FILESTORAGE"]
         }
+        # if HTTPS_PROXY is set in config file use this information
+        if "HTTPS_PROXY" in config:
+            self.__proxies = {"https": config["HTTPS_PROXY"]}
+            self.__logger.debug("using HTTPS_PROXY %s", self.__proxies)
+        else:
+            self.__proxies = {}
         # get info from backend
         info = self.__get_json("info")
         if info["hashfunc"] != "sha1":
@@ -70,7 +66,7 @@ class FileStorageClient(object):
         """
         single point of request
         """
-        res = self.__session.request(method, "/".join((self.__url, path)), data=data, headers=self.__headers)
+        res = self.__session.request(method, "/".join((self.__url, path)), data=data, headers=self.__headers, proxies=self.__proxies)
         if 199 < res.status_code < 300:
             return res
         elif 399 < res.status_code < 500:
