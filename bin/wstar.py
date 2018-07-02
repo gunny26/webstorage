@@ -22,8 +22,9 @@ from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
 from Crypto.Hash import SHA256
 # own modules
-from webstorage import WebStorageArchive as WebStorageArchive
-from webstorage import FileStorageClient as FileStorageClient
+#import webstorage
+from webstorage import WebStorageArchiveClient
+from webstorage import FileStorageClient
 
 def filemode(st_mode):
     """
@@ -456,7 +457,7 @@ def main():
     # MAIN OPTIONS Sections
     #
     myhostname = socket.gethostname()
-    wsa = WebStorageArchive()
+    wsa = WebStorageArchiveClient()
     filestorage = FileStorageClient(cache=args.cache)
     # LIST available backupsets
     if args.backupsets is True:

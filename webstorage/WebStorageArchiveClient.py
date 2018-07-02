@@ -11,56 +11,22 @@ import logging
 import base64
 import requests
 # own modules
-from Config import get_config
+from webstorage.Config import get_config
+from webstorage.WebStorageClient import WebStorageClient
 
 
-class WebStorageArchiveClient(object):
+class WebStorageArchiveClient(WebStorageClient):
     """
     store and retrieve Data, specific for WebStorageArchives
     """
 
-    __version = "1.1"
-
     def __init__(self):
         """ __init__ """
-        self.__logger = logging.getLogger(self.__class__.__name__)
-        config = get_config()
-        self.__url = config["URL_WEBSTORAGE_ARCHIVE"]
-        self.__session = requests.Session()
-        self.__headers = {
-            "user-agent": "%s-%s" % (self.__class__.__name__, self.__version),
-            "x-auth-token" : config["APIKEY_WEBSTORAGE_ARCHIVE"],
-            "x-apikey" : config["APIKEY_WEBSTORAGE_ARCHIVE"]
-        }
-        # if HTTPS_PROXY is set in config file use this information
-        if "HTTPS_PROXY" in config:
-            self.__proxies = {"https": config["HTTPS_PROXY"]}
-            self.__logger.debug("using HTTPS_PROXY %s", self.__proxies)
-        else:
-            self.__proxies = {}
-
-    def __request(self, method, path="", data=None):
-        """
-        single point of request
-        """
-        res = self.__session.request(method, "/".join((self.__url, path)), data=data, headers=self.__headers, proxies=self.__proxies)
-        if 199 < res.status_code < 300:
-            return res
-        elif 399 < res.status_code < 500:
-            raise KeyError("HTTP_STATUS %s received" % res.status_code)
-        elif 499 < res.status_code < 600:
-            raise IOError("HTTP_STATUS %s received" % res.status_code)
-
-    def __get_json(self, path=""):
-        """
-        single point of json requests
-        """
-        res = self.__request("get", path)
-        # hack to be compatible with older requests versions
-        try:
-            return res.json()
-        except TypeError:
-            return res.json
+        self._logger = logging.getLogger(self.__class__.__name__)
+        self._config = get_config()
+        self._url = self._config["URL_WEBSTORAGE_ARCHIVE"]
+        self._apikey = self._config["APIKEY_WEBSTORAGE_ARCHIVE"]
+        super().__init__()
 
     def get_backupsets(self, hostname):
         """
@@ -68,7 +34,7 @@ class WebStorageArchiveClient(object):
         """
         result = {}
         rex = re.compile(r"^(.+)_(.+)_(.+)\.wstar\.gz$")
-        for basename, value in self.__get_json().items():
+        for basename, value in self._get_json().items():
             size = value["size"]
             match = rex.match(basename)
             if match is not None:
@@ -97,20 +63,16 @@ class WebStorageArchiveClient(object):
         if backupsets:
             latest = sorted(backupsets)[-1]
             filename = backupsets[latest]["basename"]
-            self.__logger.info("latest backupset found %s", filename)
+            self._logger.info("latest backupset found %s", filename)
             return filename
-        self.__logger.error("no backupsets found")
+        self._logger.error("no backupsets found")
 
     def get(self, filename):
-        """
-        return filename
-        """
+        """ get archive """
         filename64 = base64.b64encode(filename.encode("utf-8"))
-        return self.__get_json(filename64.decode("utf-8"))
+        return self._get_json(filename64.decode("utf-8"))
 
     def put(self, data, filename):
-        """
-        return filename
-        """
+        """ put archive """
         filename64 = base64.b64encode(filename.encode("utf-8"))
-        return self.__request("put", filename64.decode("utf-8"), data=json.dumps(data))
+        return self._request("put", filename64.decode("utf-8"), data=json.dumps(data))

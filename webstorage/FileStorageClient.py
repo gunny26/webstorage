@@ -10,11 +10,12 @@ import hashlib
 import logging
 import requests
 # own modules
-from BlockStorageClient import BlockStorageClient as BlockStorageClient
-from Config import get_config
+from webstorage.Config import get_config
+from webstorage.BlockStorageClient import BlockStorageClient
+from webstorage.WebStorageClient import WebStorageClient
 
 
-class FileStorageClient(object):
+class FileStorageClient(WebStorageClient):
     """
     put some arbitrary file like data object into BlockStorage and remember how to reassemble it
     the recipe to reassemble will be stored in FileStorage
@@ -24,74 +25,26 @@ class FileStorageClient(object):
 
     def __init__(self, cache=True):
         """__init__"""
-        config = get_config()
-        self.__logger = logging.getLogger(self.__class__.__name__)
-        self.__url = config["URL_FILESTORAGE"]
-        self.__bs = BlockStorageClient(cache)
-        self.__session = requests.Session()
-        self.__headers = {
-            "user-agent": "%s-%s" % (self.__class__.__name__, self.__version),
-            "x-auth-token" : config["APIKEY_FILESTORAGE"],
-            "x-apikey" : config["APIKEY_FILESTORAGE"]
-        }
-        # if HTTPS_PROXY is set in config file use this information
-        if "HTTPS_PROXY" in config:
-            self.__proxies = {"https": config["HTTPS_PROXY"]}
-            self.__logger.debug("using HTTPS_PROXY %s", self.__proxies)
-        else:
-            self.__proxies = {}
-        # get info from backend
-        info = self.__get_json("info")
-        if info["hashfunc"] != "sha1":
-            raise Exception("only sha1 hashfunc implemented yet")
-        self.__hashfunc = hashlib.sha1
-        # build local checksum set
-        self.__checksums = set()
-        if cache is True:
-            self.__checksums = set(self.__get_json())
+        self._logger = logging.getLogger(self.__class__.__name__)
+        self._config = get_config()
+        self._url = self._config["URL_FILESTORAGE"]
+        self._apikey = self._config["APIKEY_FILESTORAGE"]
+        super().__init__()
+        self._bs = BlockStorageClient(cache)
+        self._info = self._get_json("info") # TODO: use it
+        self._cache = cache
+        self._checksums = set()
 
     @property
     def blockstorage(self):
-        return self.__bs
-
-    @property
-    def hashfunc(self):
-        return self.__hashfunc
+        return self._bs # TODO: is this necessary
 
     @property
     def checksums(self):
-        return self.__checksums
-
-    def __request(self, method, path="", data=None):
-        """
-        single point of request
-        """
-        res = self.__session.request(method, "/".join((self.__url, path)), data=data, headers=self.__headers, proxies=self.__proxies)
-        if 199 < res.status_code < 300:
-            return res
-        elif 399 < res.status_code < 500:
-            raise KeyError("HTTP_STATUS %s received" % res.status_code)
-        elif 499 < res.status_code < 600:
-            raise IOError("HTTP_STATUS %s received" % res.status_code)
-
-    def __get_json(self, path=""):
-        """
-        single point of json requests
-        """
-        res = self.__request("get", path)
-        # hack to be compatible with older requests versions
-        try:
-            return res.json()
-        except TypeError:
-            return res.json
-
-    def __blockdigest(self, data):
-        """
-        single point of digesting return hexdigest of data
-        """
-        digest = self.__hashfunc()
-        digest.update(data)
-        return digest.hexdigest()
+        if self._cache is True and not self._checksums:
+            self._logger.info("getting existing checksums from backend")
+            self._checksums = set(self._get_json())
+        return self._checksums
 
     def put(self, fh, mime_type="application/octet-stream"):
         """
@@ -112,31 +65,31 @@ class FileStorageClient(object):
             "filehash_exists" : False, # indicate if the filehash already
             "blockhash_exists" : 0, # how many blocks existed already
         }
-        filehash = self.__hashfunc()
+        filehash = self.hashfunc()
         # Put blocks in Blockstorage
-        data = fh.read(self.__bs.blocksize)
+        data = fh.read(self._bs.blocksize)
         while data:
             metadata["size"] += len(data)
             filehash.update(data)
-            checksum, status = self.__bs.put(data, use_cache=True)
-            self.__logger.debug("PUT blockcount: %d, checksum: %s, status: %s", len(metadata["blockchain"]), checksum, status)
+            checksum, status = self._bs.put(data, use_cache=True)
+            self._logger.debug("PUT blockcount: %d, checksum: %s, status: %s", len(metadata["blockchain"]), checksum, status)
             # 202 - skipped, block in cache, 201 - rewritten, block existed
             if status in (201, 202):
                 metadata["blockhash_exists"] += 1
             metadata["blockchain"].append(checksum)
-            data = fh.read(self.__bs.blocksize)
-        self.__logger.debug("put %d blocks in BlockStorage, %d existed already", len(metadata["blockchain"]), metadata["blockhash_exists"])
+            data = fh.read(self._bs.blocksize)
+        self._logger.debug("put %d blocks in BlockStorage, %d existed already", len(metadata["blockchain"]), metadata["blockhash_exists"])
         # File Checksum
         filedigest = filehash.hexdigest()
         metadata["checksum"] = filedigest
         if self.exists(filedigest) is not True: # check if filehash is already stored
-            self.__logger.debug("storing recipe for filechecksum: %s", filedigest)
-            res = self.__request("put", filedigest, data=json.dumps(metadata))
+            self._logger.debug("storing recipe for filechecksum: %s", filedigest)
+            res = self._request("put", filedigest, data=json.dumps(metadata))
             if res.status_code == 201: # could only be true at some rare race conditions
-                self.__logger.debug("recipe for checksum %s exists already", filedigest)
+                self._logger.debug("recipe for checksum %s exists already", filedigest)
                 metadata["filehash_exists"] = True
             return metadata
-        self.__logger.debug("filehash %s already stored", filedigest)
+        self._logger.debug("filehash %s already stored", filedigest)
         metadata["filehash_exists"] = True
         return metadata
 
@@ -146,15 +99,15 @@ class FileStorageClient(object):
         yields data blocks of self.blocksize
         the last block is almoust all times less than self.blocksize
         """
-        for block in self.__get_json(checksum)["blockchain"]:
-            yield self.__bs.get(block)
+        for block in self._get_json(checksum)["blockchain"]:
+            yield self._bs.get(block)
 
     def delete(self, checksum):
         """
         delete blockchain defined by hexdigest
         the unerlying data in BlockStorage will not be deleted
         """
-        self.__request("delete", checksum)
+        self._request("delete", checksum)
 
     def get(self, checksum):
         """
@@ -162,16 +115,16 @@ class FileStorageClient(object):
 
         this is not the data of this file, only the plan how to assemble the file
         """
-        return self.__get_json(checksum)
+        return self._get_json(checksum)
 
     def exists(self, checksum):
         """
         exists method if caching is on
         if the searched checksum is not available, the filestorage backend is queried
         """
-        if checksum in self.__checksums:
+        if checksum in self._checksums:
             return True
-        if self.__request("options", checksum).status_code == 200:
-            self.__checksums.add(checksum)
+        if self._request("options", checksum).status_code == 200:
+            self._checksums.add(checksum)
             return True
         return False

@@ -29,7 +29,7 @@ if __name__ == "__main__":
     print("checking 10 random blocks with verify=True")
     for checksum in random.sample(bs.checksums, 10):
         logging.info("checking checksum %s", checksum)
-        data = bs.get(checksum, verify=True)
+        data = bs.get_verify(checksum)
         logging.info("got data with length %d", len(data))
     print("checking 10 random blocks which should not exist")
     for checksum in random.sample(bs.checksums, 10):
