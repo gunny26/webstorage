@@ -89,7 +89,6 @@ class WebStorageArchiveClient(object):
                         "tag" : tag,
                         "basename" : basename
                     }
-        return result
 
     def get_latest_backupset(self, hostname):
         """
