@@ -35,7 +35,8 @@ class WebStorageClient(object):
         proxies = {}
         if "HTTPS_PROXY" in self._config:
             proxies = {"https": self._config["HTTPS_PROXY"]}
-        res = self._session.request(method, "/".join((self._url, path)), data=data, headers=self._headers, proxies=proxies)
+        url = "/".join((self._url, path))
+        res = self._session.request(method, url, data=data, headers=self._headers, proxies=proxies)
         if 199 < res.status_code < 300:
             return res
         elif 399 < res.status_code < 500:
@@ -61,3 +62,14 @@ class WebStorageClient(object):
         digest = self.hashfunc()
         digest.update(data)
         return digest.hexdigest()
+
+    def _exists(self, path):
+        """
+        OPTIONS call to path, if status_code == 200 return True
+        otherwise False
+        """
+        try:
+            if self._request("options", path).status_code == 200:
+                return True
+        except KeyError: # 404 if not found
+            return False

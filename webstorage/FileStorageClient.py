@@ -3,12 +3,8 @@
 """
 RestFUL Webclient to use FileStorage WebApp
 """
-import os
-import sys
 import json
-import hashlib
 import logging
-import requests
 # own modules
 from webstorage.Config import get_config
 from webstorage.BlockStorageClient import BlockStorageClient
@@ -70,7 +66,7 @@ class FileStorageClient(WebStorageClient):
         data = fh.read(self._bs.blocksize)
         while data:
             metadata["size"] += len(data)
-            filehash.update(data)
+            filehash.update(data) # running filehash until end
             checksum, status = self._bs.put(data, use_cache=True)
             self._logger.debug("PUT blockcount: %d, checksum: %s, status: %s", len(metadata["blockchain"]), checksum, status)
             # 202 - skipped, block in cache, 201 - rewritten, block existed
@@ -79,7 +75,7 @@ class FileStorageClient(WebStorageClient):
             metadata["blockchain"].append(checksum)
             data = fh.read(self._bs.blocksize)
         self._logger.debug("put %d blocks in BlockStorage, %d existed already", len(metadata["blockchain"]), metadata["blockhash_exists"])
-        # File Checksum
+        # put file composition into filestorage
         filedigest = filehash.hexdigest()
         metadata["checksum"] = filedigest
         if self.exists(filedigest) is not True: # check if filehash is already stored
@@ -97,7 +93,7 @@ class FileStorageClient(WebStorageClient):
         """
         return data as generator
         yields data blocks of self.blocksize
-        the last block is almoust all times less than self.blocksize
+        the last block is almost all times less than self.blocksize
         """
         for block in self._get_json(checksum)["blockchain"]:
             yield self._bs.get(block)
@@ -105,7 +101,7 @@ class FileStorageClient(WebStorageClient):
     def delete(self, checksum):
         """
         delete blockchain defined by hexdigest
-        the unerlying data in BlockStorage will not be deleted
+        the underlying data in BlockStorage will not be deleted
         """
         self._request("delete", checksum)
 
@@ -124,7 +120,7 @@ class FileStorageClient(WebStorageClient):
         """
         if checksum in self._checksums:
             return True
-        if self._request("options", checksum).status_code == 200:
+        if self._exists(checksum):
             self._checksums.add(checksum)
             return True
         return False

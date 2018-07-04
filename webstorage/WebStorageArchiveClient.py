@@ -3,13 +3,10 @@
 """
 RestFUL Webclient to use FileStorage and BlockStorage WebApps
 """
-import os
-import sys
 import re
 import json
 import logging
 import base64
-import requests
 # own modules
 from webstorage.Config import get_config
 from webstorage.WebStorageClient import WebStorageClient
@@ -28,9 +25,14 @@ class WebStorageArchiveClient(WebStorageClient):
         self._apikey = self._config["APIKEY_WEBSTORAGE_ARCHIVE"]
         super().__init__()
 
-    def get_backupsets(self, hostname):
+    def get_backupsets(self, hostname=None):
         """
-        return data of available backupsets for this specific hostname
+        get all available backupsets
+        works like directory listing of *.wstar.gz
+        returns data sorted by datetime of filename
+
+        returns:
+        <list>
         """
         result = {}
         rex = re.compile(r"^(.+)_(.+)_(.+)\.wstar\.gz$")
@@ -44,31 +46,36 @@ class WebStorageArchiveClient(WebStorageClient):
                 # 2016-10-25T20:23:17.782902
                 thisdate, thistime = timestamp.split("T")
                 thistime = thistime.split(".")[0]
-                if hostname == thishostname:
-                    result[basename] = {
-                        "date": thisdate,
-                        "time" : thistime,
-                        "size" : size,
-                        "tag" : tag,
-                        "basename" : basename
-                    }
+                if hostname and hostname != thishostname: # filter only backupsets for this hostname
+                    continue
+                result[basename] = {
+                    "date": thisdate,
+                    "time" : thistime,
+                    "datetime" : timestamp,
+                    "size" : size,
+                    "tag" : tag,
+                    "basename" : basename
+                }
+        # sort by datetime
+        return sorted(result.values(), key=lambda a: a["datetime"])
 
-    def get_latest_backupset(self, hostname):
+    def get_latest_backupset(self, hostname=None):
         """
-        get the latest backupset stored
+        get the latest backupset stored shorthand function to get_backupsets
 
+        parmeters:
         hostname <str>
+
+        returns:
+        <str>
         """
-        backupsets = self.get_backupsets(hostname)
-        if backupsets:
-            latest = sorted(backupsets)[-1]
-            filename = backupsets[latest]["basename"]
-            self._logger.info("latest backupset found %s", filename)
-            return filename
-        self._logger.error("no backupsets found")
+        try:
+            return self.get_backupsets(hostname)[-1]["basename"]
+        except IndexError:
+            pass
 
     def get(self, filename):
-        """ get archive """
+        """ get specific archive """
         filename64 = base64.b64encode(filename.encode("utf-8"))
         return self._get_json(filename64.decode("utf-8"))
 

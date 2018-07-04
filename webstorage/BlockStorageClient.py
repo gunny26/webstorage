@@ -39,12 +39,12 @@ class BlockStorageClient(WebStorageClient):
         assert len(data) <= self.blocksize
         checksum = self._blockdigest(data)
         if use_cache and checksum in self.checksums:
-            self._logger.info("202 - skip this block, checksum is in list of stored checksums")
+            self._logger.debug("202 - skip this block, checksum is in list of stored checksums")
             return (checksum, 202)
         else:
             res = self._request("put", checksum, data=data)
             if res.status_code == 201:
-                self._logger.info("201 - block rewritten")
+                self._logger.debug("201 - block rewritten")
             if res.text != checksum:
                 raise AssertionError("checksum mismatch, sent %s to save, but got %s from backend" % (checksum, res.text))
             self._checksums.add(checksum) # add to local cache
@@ -66,11 +66,23 @@ class BlockStorageClient(WebStorageClient):
     def exists(self, checksum):
         """
         exists method if caching is on
-        if the searched checksum is not available, the backend is queried
+        if the searched checksum is not available, the filestorage backend is queried
         """
-        try:
-            if checksum in self._checksums or self._request("options", checksum).status_code == 200:
-                return True
-        except KeyError:
-            pass
+        if checksum in self._checksums:
+            return True
+        if self._exists(checksum):
+            self._checksums.add(checksum)
+            return True
         return False
+
+#    def exists(self, checksum):
+#        """
+#        exists method if caching is on
+#        if the searched checksum is not available, the backend is queried
+#        """
+#        try:
+#            if checksum in self._checksums or self._request("options", checksum).status_code == 200:
+#                return True
+#        except KeyError:
+#            pass
+#        return False

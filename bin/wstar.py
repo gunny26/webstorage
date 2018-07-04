@@ -18,9 +18,9 @@ import logging
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
-from Crypto.PublicKey import RSA
-from Crypto.Signature import PKCS1_v1_5
-from Crypto.Hash import SHA256
+# from Crypto.PublicKey import RSA
+# from Crypto.Signature import PKCS1_v1_5
+# from Crypto.Hash import SHA256
 # own modules
 #import webstorage
 from webstorage import WebStorageArchiveClient
@@ -66,16 +66,16 @@ def create_blacklist(absfilename):
     """
     patterns = []
     logging.debug("reading exclude file")
-    with open(absfilename) as exclude_file:
+    with open(absfilename, "rt") as exclude_file:
         for row in exclude_file:
             if len(row) <= 1:
                 continue
             if row[0] == "#":
                 continue
-            operator = row.strip()[0]
-            pattern = row.strip()[2:]
+            operator = row.strip()[0] # -/+
+            pattern = row.strip()[2:] # some string to use in match
             logging.debug("%s %s", operator, pattern)
-            rex = re.compile(pattern)
+            rex = re.compile(pattern.lower())
             if operator == "-":
                 patterns.append(rex.match)
     def blacklist_func(filename):
@@ -83,7 +83,7 @@ def create_blacklist(absfilename):
         returned closure to use for blacklist checking
         """
         logging.debug("matching %s", filename)
-        return any((func(filename) for func in patterns))
+        return any((func(filename.lower()) for func in patterns))
     return blacklist_func
 
 def create(filestorage, path, blacklist_func):
@@ -121,7 +121,7 @@ def create(filestorage, path, blacklist_func):
                 continue
             try:
                 stats = os.stat(absfilename)
-                metadata = filestorage.put_fast(open(absfilename, "rb"))
+                metadata = filestorage.put(open(absfilename, "rb"))
                 if metadata["filehash_exists"] is True:
                     action_str = "FDEDUP"
                 else:
@@ -196,7 +196,7 @@ def diff(filestorage, data, blacklist_func):
             if change is False:
                 logging.debug("%8s %s", "OK", ppls(absfile, filedata))
             else:
-                metadata = filestorage.put_fast(open(absfile, "rb"))
+                metadata = filestorage.put(open(absfile, "rb"))
                 # update data
                 data["filedata"][absfile] = {
                     "checksum" : metadata["checksum"],
@@ -218,7 +218,7 @@ def diff(filestorage, data, blacklist_func):
                 logging.info("%8s %s", "ADD", absfilename)
                 try:
                     stats = os.stat(absfilename)
-                    metadata = filestorage.put_fast(open(absfilename, "rb"))
+                    metadata = filestorage.put(open(absfilename, "rb"))
                     data["filedata"][absfilename] = {
                         "checksum" : metadata["checksum"],
                         "stat" : (stats.st_mtime, stats.st_atime, stats.st_ctime, stats.st_uid, stats.st_gid, stats.st_mode, stats.st_size)
@@ -365,7 +365,7 @@ def signature_valid(data, signature, public_key_filename):
         return True
     return False
 
-def save_webstorage_archive(data, filename, private_key):
+def save_webstorage_archive(data, filename, private_key=None):
     """
     add duration, checksum and signature to data,
     afterwards store in WebStorageArchive
@@ -378,10 +378,13 @@ def save_webstorage_archive(data, filename, private_key):
     data["checksum"] = sha256.hexdigest()
     logging.info("checksum of archive %s", data["checksum"])
     # sorting keys is essential to ensure same signature
-    data["signature"] = get_signature(json.dumps(data, sort_keys=True).encode("utf-8"), private_key)
+    if private_key:
+        data["signature"] = get_signature(json.dumps(data, sort_keys=True).encode("utf-8"), private_key)
+    else:
+        data["signature"] = ""
     logging.info("%(totalcount)d files of %(totalsize)s bytes size", data)
     # store
-    wsa = WebStorageArchive()
+    wsa = WebStorageArchiveClient()
     wsa.put(data, filename)
 
 def get_webstorage_data(public_key=None, filename=None):
@@ -391,7 +394,7 @@ def get_webstorage_data(public_key=None, filename=None):
     public_key ... path to public key file, to verify signature, if present
     filename ... to name a file, or otherwise use the latest available backupset
     """
-    wsa = WebStorageArchive()
+    wsa = WebStorageArchiveClient()
     myhostname = socket.gethostname()
     if filename is None:
         logging.info("-f not provided, using latest available archive")
@@ -407,6 +410,8 @@ def get_webstorage_data(public_key=None, filename=None):
         else:
             logging.error("digital signature in archive is invalid")
             raise AttributeError("digital signature in archive is invalid")
+    else:
+        logging.info("no digital signature provided")
     return data
 
 def main():
@@ -429,6 +434,7 @@ def main():
     parser.add_argument('--filename', help="filename to get from WebStorageArchive Store, if not given the latest available will be used")
     parser.add_argument('--cache', action="store_true", default=True, help="in caching mode, all available FileStorage checksums will be preloaded from backend. consumes more memory")
     parser.add_argument('--nocache', dest="cache", action="store_false", default=True, help="disable caching mode")
+    parser.add_argument('--nosign', dest="nosign", action="store_true", default=True, help="disable signing ob Archive File")
     parser.add_argument('--public-key', default="~/.webstorage/public.der", help="path to public key file in DER format")
     parser.add_argument('--private-key', default="~/.webstorage/private.der", help="path to private key file in DER format")
     parser.add_argument('-q', "--quiet", action="store_true", help="switch to loglevel ERROR")
@@ -453,6 +459,15 @@ def main():
         logging.debug("--tag not provided, using final part of --path %s", tag)
     else:
         tag = args.tag
+    # load crypto libraries if signing enabled
+    if not args.nosign:
+        from Crypto.PublicKey import RSA
+        from Crypto.Signature import PKCS1_v1_5
+        from Crypto.Hash import SHA256
+    else:
+        args.private_key = None
+        args.public_key = None
+    #
     #
     # MAIN OPTIONS Sections
     #
@@ -461,9 +476,7 @@ def main():
     filestorage = FileStorageClient(cache=args.cache)
     # LIST available backupsets
     if args.backupsets is True:
-        backupsets = wsa.get_backupsets(myhostname)
-        for key in sorted(backupsets.keys()):
-            value = backupsets[key]
+        for value in wsa.get_backupsets(myhostname):
             logging.info("%(date)10s %(time)8s %(size)s\t%(tag)s\t%(basename)s", value)
     # CREATE new Archive
     elif args.create is True:
