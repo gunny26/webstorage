@@ -24,7 +24,7 @@ def load_config():
     configfile = os.path.expanduser("~/blockstorage.ini")
     global CONFIG
     if os.path.isfile(configfile):
-        for line in open(configfile, "rb"):
+        for line in open(configfile, "rt"):
             key, value = line.strip().split("=")
             CONFIG[key] = value
     else:
@@ -66,7 +66,7 @@ def authenticator(func):
                 logging.error("X-AUTH-TOKEN HTTP Header missing")
                 web.ctx.status = '401 Unauthorized'
             return
-        except StandardError as exc:
+        except Exception as exc:
             logging.exception(exc)
             logging.error("call to %s caused StandardError", call_str)
             web.internalerror()
@@ -87,7 +87,7 @@ def calllogger(func):
             ret_val = func(*args, **kwds)
             logging.debug("duration of call %s : %s", call_str, (time.time() - starttime))
             return ret_val
-        except StandardError as exc:
+        except Exception as exc:
             logging.exception(exc)
             logging.error("call to %s caused StandardError", call_str)
             web.internalerror()
@@ -129,7 +129,7 @@ class BlockStorage(object):
         if CONFIG["HASHFUNC"] == "sha1":
             self.hashfunc = hashlib.sha1
         else:
-            raise StandardError("only sha1 hashfunction implemented yet")
+            raise Exception("only sha1 hashfunction implemented yet")
 
     def __get_filename(self, checksum):
         """
@@ -182,7 +182,7 @@ class BlockStorage(object):
         returns checksum of stored data
         """
         data = web.data()
-        if len(data) > CONFIG["MAXSIZE"]:
+        if len(data) > int(CONFIG["MAXSIZE"]):
             web.ctx.status = '501 data too long'
             return
         if len(data) > 0:
