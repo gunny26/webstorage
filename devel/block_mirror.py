@@ -6,8 +6,8 @@ import random
 import hashlib
 import logging
 logging.basicConfig(level=logging.DEBUG)
-#logging.getLogger("requests").setLevel(logging.WARNING)
-#logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 from webstorage import BlockStorageClient as BlockStorageClient
 
 
@@ -17,6 +17,8 @@ if __name__ == "__main__":
     print("found %d existing checksums in bs1" % len(bs1.checksums))
     print("found %d existing checksums in bs2" % len(bs2.checksums))
     for checksum in bs1.checksums:
+        if checksum in bs2.checksums:
+            print("checksum %s already duplicated" % checksum)
         print("getting %s" % checksum)
         data = bs1.get(checksum)
         print("putting %s" % checksum)
