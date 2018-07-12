@@ -94,3 +94,31 @@ python3 /home/user/gits/webstorage/bin/wstar_devel.py -c -p /home/user/ -e /home
 python3 /home/user/gits/webstorage/bin/wstar_devel.py -d -p /home/user/ -e /home/user/.webstorage/exclude.txt
 
 # this batchfile could b implmented as startup program
+#
+
+# for installation on raspbian stretch with python3 wsgi interface and webapp
+#
+sudo apt install git
+sudo apt install vim
+cd /opt/
+sudo git clone https://github.com/gunny26/webstorage
+sudo chown pi.pi webstorage -R
+# also get web.py git repository
+cd /opt
+sudo git clone https://github.com/webpy/webpy.git
+sudo chown pi.pi webpy -R
+cd webpy/
+sudo apt install python3-setuptools
+sudo python3 setup.py install
+# install and configure apache2
+sudo apt install apache2
+sudo apt install libapache2-mod-wsgi-py3
+sudo vim /etc/apache2/sites-enabled/000-default.conf 
+sudo vim /var/www/blockstorage.ini
+sudo vim /var/www/blockstorage_apikeys.json
+sudo a2enmod wsgi
+sudo systemctl reload apache2.service 
+sudo mkdir /srv/webstorage
+sudo mkdir /srv/webstorage/blockstorage
+sudo mkdir /srv/webstorage/filestorage
+sudo chown www-data.www-data /srv/webstorage -R
