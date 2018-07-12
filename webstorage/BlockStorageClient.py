@@ -11,12 +11,18 @@ from webstorage.WebStorageClient import WebStorageClient
 class BlockStorageClient(WebStorageClient):
     """stores chunks of data into BlockStorage"""
 
-    def __init__(self, cache=True):
+    def __init__(self, url=None, apikey=None, cache=True):
         """__init__"""
         self._logger = logging.getLogger(self.__class__.__name__)
         self._config = get_config()
-        self._url = self._config["URL_BLOCKSTORAGE"]
-        self._apikey = self._config["APIKEY_BLOCKSTORAGE"]
+        if url is None:
+            self._url = self._config["URL_BLOCKSTORAGE"]
+        else:
+            self._url = url
+        if apikey is None:
+            self._apikey = self._config["APIKEY_BLOCKSTORAGE"]
+        else:
+            self._apikey = apikey
         super().__init__()
         # get info from backend
         self._cache = cache # cache blockdigests or not
