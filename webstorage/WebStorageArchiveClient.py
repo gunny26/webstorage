@@ -8,7 +8,7 @@ import json
 import logging
 import base64
 # own modules
-from webstorage.Config import get_config
+from webstorage.ClientConfig import ClientConfig
 from webstorage.WebStorageClient import WebStorageClient
 
 
@@ -17,12 +17,18 @@ class WebStorageArchiveClient(WebStorageClient):
     store and retrieve Data, specific for WebStorageArchives
     """
 
-    def __init__(self):
+    def __init__(self, url=None, apikey=None):
         """ __init__ """
         self._logger = logging.getLogger(self.__class__.__name__)
-        self._config = get_config()
-        self._url = self._config["URL_WEBSTORAGE_ARCHIVE"]
-        self._apikey = self._config["APIKEY_WEBSTORAGE_ARCHIVE"]
+        self._client_config = ClientConfig()
+        if not url:
+            self._url = self._client_config.archive_url
+        else:
+            self._url = url
+        if not apikey:
+            self._apikey = self._client_config.archive_apikey
+        else:
+            self._apikey = apikey
         super().__init__()
 
     def get_backupsets(self, hostname=None):

@@ -8,19 +8,30 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
+import concurrent.futures
+# own modules
+from webstorage import ClientConfig as ClientConfig
 from webstorage import BlockStorageClient as BlockStorageClient
 
 
+def copy(checksum):
+    starttime = time.time()
+    bs2.put(bs1.get(checksum))
+    return "checksum %s duplicated in %0.2f s" % (checksum, (time.time() - starttime))
+
 if __name__ == "__main__":
-    bs1 = BlockStorageClient()
-    bs2 = BlockStorageClient(url="http://neutrino.messner.click/blockstorage", apikey="65a7dfd9-3d41-4135-81ca-d845bc4b6676")
-    print("found %d existing checksums in bs1" % len(bs1.checksums))
-    print("found %d existing checksums in bs2" % len(bs2.checksums))
-    for checksum in bs1.checksums:
-        if checksum in bs2.checksums:
-            print("checksum %s already duplicated" % checksum)
-        print("getting %s" % checksum)
-        data = bs1.get(checksum)
-        print("putting %s" % checksum)
-        put_checksum, status = bs2.put(data)
-        assert put_checksum == checksum
+    cc = ClientConfig()
+    for config in cc.blockstorages:
+        print(config)
+    bs1_config = cc.blockstorages[0]
+    bs1 = BlockStorageClient(url=bs1_config["url"], apikey=bs1_config["apikey"])
+    bs2_config = cc.blockstorages[1]
+    bs2 = BlockStorageClient(url=bs2_config["url"], apikey=bs2_config["apikey"])
+    print("found %d existing checksums in BlockStorage named %s" % (len(bs1.checksums), bs1_config["description"]))
+    print("found %d existing checksums in BlockStorage named %s" % (len(bs2.checksums), bs2_config["description"]))
+    checksums = [checksum for checksum in bs1.checksums if checksum not in bs2.checksums]
+    print("identified %s checksums to duplicate" % len(checksums))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        for checksum in checksums:
+            future = executor.submit(copy, checksum)
+            print(future.result())

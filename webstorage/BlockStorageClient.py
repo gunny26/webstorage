@@ -5,7 +5,7 @@ RestFUL Webclient to use BlockStorage WebApps
 """
 import logging
 # own modules
-from webstorage.Config import get_config
+from webstorage.ClientConfig import ClientConfig
 from webstorage.WebStorageClient import WebStorageClient
 
 class BlockStorageClient(WebStorageClient):
@@ -14,13 +14,13 @@ class BlockStorageClient(WebStorageClient):
     def __init__(self, url=None, apikey=None, cache=True):
         """__init__"""
         self._logger = logging.getLogger(self.__class__.__name__)
-        self._config = get_config()
+        self._client_config = ClientConfig()
         if url is None:
-            self._url = self._config["URL_BLOCKSTORAGE"]
+            self._url = self._client_config.blockstorage_url
         else:
             self._url = url
         if apikey is None:
-            self._apikey = self._config["APIKEY_BLOCKSTORAGE"]
+            self._apikey = self._client_config.blockstorage_apikey
         else:
             self._apikey = apikey
         super().__init__()

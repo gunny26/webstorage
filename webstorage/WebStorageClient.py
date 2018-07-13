@@ -9,11 +9,11 @@ import hashlib
 import logging
 import requests
 # own modules
-from webstorage.Config import get_config
+from webstorage.ClientConfig import ClientConfig
 
 
 class WebStorageClient(object):
-    """basic super clas for WebStorage Client Classes"""
+    """basic super class for WebStorage Client Classes"""
 
     _version = "2.0"
 
@@ -22,9 +22,14 @@ class WebStorageClient(object):
         self._session = requests.Session()
         self._headers = {
             "user-agent": "%s-%s" % (self.__class__.__name__, self._version),
-            "x-auth-token" : self._config["APIKEY_BLOCKSTORAGE"],
-            "x-apikey" : self._config["APIKEY_BLOCKSTORAGE"]
+            "x-auth-token" : self._apikey,
+            "x-apikey" : self._apikey
         }
+        self._proxies = {}
+        if self._client_config.https_proxy:
+            self._proxies["https"] = self._client_config.https_proxy
+        if self._client_config.http_proxy:
+            self._proxies["http"] = self._client_config.http_proxy
         self.hashfunc = hashlib.sha1
 
     def _request(self, method, path="", data=None):
@@ -32,11 +37,11 @@ class WebStorageClient(object):
         single point of request
         """
         # if HTTPS_PROXY is set in config file use this information
-        proxies = {}
-        if "HTTPS_PROXY" in self._config:
-            proxies = {"https": self._config["HTTPS_PROXY"]}
+        #proxies = {}
+        #if "HTTPS_PROXY" in self._config:
+        #    proxies = {"https": self._config["HTTPS_PROXY"]}
         url = "/".join((self._url, path))
-        res = self._session.request(method, url, data=data, headers=self._headers, proxies=proxies)
+        res = self._session.request(method, url, data=data, headers=self._headers, proxies=self._proxies)
         if 199 < res.status_code < 300:
             return res
         elif 399 < res.status_code < 500:

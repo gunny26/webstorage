@@ -6,7 +6,7 @@ RestFUL Webclient to use FileStorage WebApp
 import json
 import logging
 # own modules
-from webstorage.Config import get_config
+from webstorage.ClientConfig import ClientConfig
 from webstorage.BlockStorageClient import BlockStorageClient
 from webstorage.WebStorageClient import WebStorageClient
 
@@ -19,14 +19,20 @@ class FileStorageClient(WebStorageClient):
 
     __version = "1.1"
 
-    def __init__(self, cache=True):
+    def __init__(self, url=None, apikey=None, cache=True):
         """__init__"""
         self._logger = logging.getLogger(self.__class__.__name__)
-        self._config = get_config()
-        self._url = self._config["URL_FILESTORAGE"]
-        self._apikey = self._config["APIKEY_FILESTORAGE"]
+        self._client_config = ClientConfig()
+        if not url:
+            self._url = self._client_config.filestorage_url
+        else:
+            self._url = url
+        if not apikey:
+            self._apikey = self._client_config.filestorage_apikey
+        else:
+            self._apikey = apikey
         super().__init__()
-        self._bs = BlockStorageClient(cache)
+        self._bs = BlockStorageClient(cache=cache)
         self._info = self._get_json("info") # TODO: use it
         self._cache = cache
         self._checksums = set()
