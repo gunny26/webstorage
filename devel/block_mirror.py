@@ -32,6 +32,8 @@ if __name__ == "__main__":
     checksums = [checksum for checksum in bs1.checksums if checksum not in bs2.checksums]
     print("identified %s checksums to duplicate" % len(checksums))
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        for checksum in checksums:
-            future = executor.submit(copy, checksum)
+        futures = []
+        for checksum in checksums[:100]:
+            futures.append(executor.submit(copy, checksum))
+        for future in concurrent.futures.as_completed(futures):
             print(future.result())
