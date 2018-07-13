@@ -31,7 +31,7 @@ if __name__ == "__main__":
     print("found %d existing checksums in BlockStorage named %s" % (len(bs2.checksums), bs2_config["description"]))
     checksums = [checksum for checksum in bs1.checksums if checksum not in bs2.checksums]
     print("identified %s checksums to duplicate" % len(checksums))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = []
         for checksum in checksums[:100]:
             futures.append(executor.submit(copy, checksum))
