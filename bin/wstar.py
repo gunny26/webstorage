@@ -195,13 +195,18 @@ def diff(filestorage, data, blacklist_func):
             if change is False:
                 logging.debug("%8s %s", "OK", ppls(absfile, filedata))
             else:
-                metadata = filestorage.put(open(absfile, "rb"))
-                # update data
-                data["filedata"][absfile] = {
-                    "checksum" : metadata["checksum"],
-                    "stat" : (stats.st_mtime, stats.st_atime, stats.st_ctime, stats.st_uid, stats.st_gid, stats.st_mode, stats.st_size)
-                }
-                changed = True
+                try:
+                    with open(absfile, "rb") as infile:
+                        metadata = filestorage.put(infile)
+                        # update data
+                        data["filedata"][absfile] = {
+                            "checksum" : metadata["checksum"],
+                            "stat" : (stats.st_mtime, stats.st_atime, stats.st_ctime, stats.st_uid, stats.st_gid, stats.st_mode, stats.st_size)
+                        }
+                        changed = True
+                except PermissionError as exc:
+                    logging.error(exc)
+                    logging.error("skipping file %s", absfile)
     # search for new files on local storage
     for root, dirs, files in os.walk(data["path"]):
         for filename in files:
@@ -555,7 +560,7 @@ def main():
     elif args.diff:
         if not args.backupset:
             logging.info("using latest backupset, otherwise use --backupset to specify one specific")
-            args.backupset = wsa.get_lastest_backupset()
+            args.backupset = wsa.get_latest_backupset()
         logging.info("creating differential backupset to existing backupset %s", args.backupset)
         if not args.tag:
             args.tag = args.backupset.split("_")[1]
