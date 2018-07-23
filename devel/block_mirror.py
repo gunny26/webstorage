@@ -16,8 +16,9 @@ from webstorage import BlockStorageClient as BlockStorageClient
 
 def copy(checksum):
     starttime = time.time()
-    bs2.put(bs1.get(checksum))
-    return "checksum %s duplicated in %0.2f s" % (checksum, (time.time() - starttime))
+    block = bs1.get(checksum)
+    bs2.put(block)
+    print("checksum %s size %s duplicated in %0.2f s" % (checksum, len(block), (time.time() - starttime)))
 
 if __name__ == "__main__":
     cc = ClientConfig()
@@ -31,9 +32,5 @@ if __name__ == "__main__":
     print("found %d existing checksums in BlockStorage named %s" % (len(bs2.checksums), bs2_config["description"]))
     checksums = [checksum for checksum in bs1.checksums if checksum not in bs2.checksums]
     print("identified %s checksums to duplicate" % len(checksums))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        futures = []
-        for checksum in checksums[:100]:
-            futures.append(executor.submit(copy, checksum))
-        for future in concurrent.futures.as_completed(futures):
-            print(future.result())
+    for checksum in checksums[:1000]:
+        copy(checksum)
