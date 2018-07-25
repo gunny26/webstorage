@@ -12,7 +12,8 @@ from BlockStorageClient import BlockStorageClient as BlockStorageClient
 
 
 if __name__ == "__main__":
-    bs = BlockStorageClient(url="http://neutrino.messner.click/blockstorage", apikey="65a7dfd9-3d41-4135-81ca-d845bc4b6676")
+    bs = BlockStorageClient(url="http://neutrino.messner.click/bs001", apikey="65a7dfd9-3d41-4135-81ca-d845bc4b6676")
+    print(bs.info)
     print("found %d existing checksums" % len(bs.checksums))
     print("checking 10 random blocks")
     for checksum in random.sample(bs.checksums, 10):

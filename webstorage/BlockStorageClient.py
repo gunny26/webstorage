@@ -34,6 +34,10 @@ class BlockStorageClient(WebStorageClient):
         return int(self._info["blocksize"])
 
     @property
+    def info(self):
+        return self._info
+
+    @property
     def checksums(self):
         if (self._cache == True) and (not self._checksums):
             self._logger.info("getting existing checksums")

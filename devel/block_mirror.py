@@ -17,8 +17,10 @@ from webstorage import BlockStorageClient as BlockStorageClient
 def copy(checksum):
     starttime = time.time()
     block = bs1.get(checksum)
-    bs2.put(block)
-    print("checksum %s size %s duplicated in %0.2f s" % (checksum, len(block), (time.time() - starttime)))
+    print("read %s size %s" % (checksum, len(block)))
+    if block:
+        bs2.put(block)
+        print("checksum %s size %s duplicated in %0.2f s" % (checksum, len(block), (time.time() - starttime)))
 
 if __name__ == "__main__":
     cc = ClientConfig()
@@ -32,5 +34,5 @@ if __name__ == "__main__":
     print("found %d existing checksums in BlockStorage named %s" % (len(bs2.checksums), bs2_config["description"]))
     checksums = [checksum for checksum in bs1.checksums if checksum not in bs2.checksums]
     print("identified %s checksums to duplicate" % len(checksums))
-    for checksum in checksums[:1000]:
+    for checksum in checksums[:100000]:
         copy(checksum)
