@@ -51,6 +51,17 @@ class BlockStorageInfo(object):
             "free" : free # maximum number of blocks left to store
             })
 
+_storage_dir = CONFIG["storage_dir"]
+if not os.path.exists(_storage_dir):
+    logging.error("creating directory %s", _storage_dir)
+    os.mkdir(_storage_dir)
+if CONFIG["hashfunc"] == "sha1":
+    _hashfunc = hashlib.sha1
+else:
+    raise Exception("only sha1 hashfunction implemented yet")
+_blocksize = CONFIG["blocksize"]
+CHECKSUMS = [filename[:-4] for filename in os.listdir(_storage_dir)]
+logging.info("found %d checksums in storage directory", len(CHECKSUMS))
 
 class BlockStorage(object):
     """
@@ -60,16 +71,6 @@ class BlockStorage(object):
     def __init__(self):
         """__init__"""
         self.log = logging.getLogger(self.__class__.__name__)
-        self._storage_dir = CONFIG["storage_dir"]
-        if not os.path.exists(self._storage_dir):
-            self.log.error("creating directory %s", self._storage_dir)
-            os.mkdir(self._storage_dir)
-        if CONFIG["hashfunc"] == "sha1":
-            self._hashfunc = hashlib.sha1
-        else:
-            raise Exception("only sha1 hashfunction implemented yet")
-        self._blocksize = CONFIG["blocksize"]
-        self._checksums = None
 
     def __get_filename(self, checksum):
         """
@@ -81,16 +82,11 @@ class BlockStorage(object):
         ret:
         <basestring>
         """
-        return os.path.join(self._storage_dir, "%s.bin" % checksum)
+        return os.path.join(_storage_dir, "%s.bin" % checksum)
 
     @property
     def checksums(self):
-        if self._checksums is None:
-            self.log.info("first call to get checksums")
-            # cut away .bin to get checksum only
-            self._checksums = [filename[:-4] for filename in os.listdir(self._storage_dir)]
-            self.log.info("found %d checksums in storage directory", len(self._checksums))
-        return self._checksums
+        return CHECKSUMS
 
     @authenticator(CONFIG)
     @calllogger
@@ -133,18 +129,19 @@ class BlockStorage(object):
         returns checksum of stored data
         """
         data = web.data()
-        if len(data) > int(self._blocksize):
+        if len(data) > int(_blocksize):
             web.ctx.status = '501 data too long'
             return
         if len(data) > 0:
-            digest = self._hashfunc()
+            digest = _hashfunc()
             digest.update(data)
             checksum = digest.hexdigest()
             filename = self.__get_filename(checksum)
             if not os.path.isfile(filename):
                 with open(filename, "wb") as outfile:
                     outfile.write(data)
-                self._checksums.append(checksum) # remember newly created block
+                global CHECKSUMS
+                CHECKSUMS.append(checksum) # remember newly created block
             else:
                 web.ctx.status = '201 exists, not written'
                 logging.info("block %s already exists", filename)
