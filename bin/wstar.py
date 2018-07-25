@@ -23,8 +23,8 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 # from Crypto.Hash import SHA256
 # own modules
 #import webstorage
-from webstorage import WebStorageArchiveClient
-from webstorage import FileStorageClient
+from webstorageClient import WebStorageArchiveClient
+from webstorageClient import FileStorageClient
 
 def filemode(st_mode):
     """

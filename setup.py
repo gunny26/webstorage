@@ -11,14 +11,17 @@ args = {"name": "webstorage",
         "long_description": __doc__,
         "platforms": ["any", ],
         "license": "LGPLv2",
-        "packages": ["webstorage", ],
+        "packages": ["webstorageClient", "webstorageServer"],
         "scripts": ["bin/wstar.py",],
         # Make packages in root dir appear in pywbem module
-        #"package_dir": {"webstorage": "webstorage"},
+        "package_dir": {
+            "webstorageClient": "client",
+            "webstorageServer" : "server"
+            },
         # Make extensions in root dir appear in pywbem module
         #"ext_package": "webstorage",
         # "ext_modules" : cythonize("*.pyx"),
         "requires" : ["requests", ],
-        "version" : "2.0.1",
+        "version" : "2.0.2",
         }
 setup(**args)
