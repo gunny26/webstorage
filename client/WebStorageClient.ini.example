@@ -1,0 +1,3 @@
+URL_BLOCKSTORAGE=http://odroid.op226/blockstorage
+URL_FILESTORAGE=http://odroid.op226/filestorage
+URL_FILEINDEX=http://odroid.op226/fileindex
