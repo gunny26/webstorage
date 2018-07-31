@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 import sys
 import time
 import hashlib
@@ -7,7 +7,7 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("urllib3").setLevel(logging.ERROR)
 logging.getLogger("requests").setLevel(logging.ERROR)
 # own modules
-from WebStorageClient import FileStorageClient as FileStorageClient
+from webstorageClient import FileStorageClient
 
 
 if __name__ == "__main__":
@@ -16,7 +16,7 @@ if __name__ == "__main__":
     size = 0
     starttime = time.time()
     for data in fs.read(sys.argv[1]):
-        sys.stdout.write(str(data))
+        sys.stdout.buffer.write(bytes(data))
         digest.update(data)
         size += len(data)
     duration = time.time() - starttime
