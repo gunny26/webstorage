@@ -12,7 +12,7 @@ args = {"name": "webstorage",
         "platforms": ["any", ],
         "license": "LGPLv2",
         "packages": ["webstorageClient", "webstorageServer"],
-        "scripts": ["bin/wstar.py",],
+        "scripts": ["bin/wstar.py", "bin/wsclient.py"],
         # Make packages in root dir appear in pywbem module
         "package_dir": {
             "webstorageClient": "client",
