@@ -5,6 +5,7 @@ Backend to store chunks of Blocks to disk, and retrieve thru RestFUL API
 """
 import web
 import os
+import sys
 import time
 import logging
 FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
@@ -19,8 +20,28 @@ urls = (
     "/(.*)", "BlockStorage",
 )
 
-with open("/var/www/BlockStorage_001.json", "rt") as infile:
-    CONFIG = json.load(infile)
+application = web.application(urls, globals()).wsgifunc()
+# load global config and read initial checksums list
+#print(web.ctx)
+#module_filename = web.ctx.environment.get("SCRIPT_NAME")
+#logging.info("module_filename %s", module_filename)
+config_filename = "/var/www/BlockStorageWebApp_001.json" # omit .py extention
+logging.info("config_filename %s", config_filename)
+with open(os.path.join("/var/www", config_filename), "rt") as infile:
+        CONFIG = json.load(infile)
+_storage_dir = CONFIG["storage_dir"]
+if not os.path.exists(_storage_dir):
+    logging.error("creating directory %s", _storage_dir)
+    os.mkdir(_storage_dir)
+_hashfunc = CONFIG["hashfunc"]
+if _hashfunc == "sha1":
+    _hashfunc = hashlib.sha1
+    _maxlength = 40 # lenght of sha1 checksum
+else:
+    raise Exception("Config Error only sha1 checksums are implemented yet")
+_checksums = [filename.split(".")[0] for filename in os.listdir(_storage_dir)] 
+logging.info("found %d existing checksums", len(_checksums))
+_blocksize = CONFIG["blocksize"]
 
 
 class BlockStorageInfo(object):
@@ -51,17 +72,6 @@ class BlockStorageInfo(object):
             "free" : free # maximum number of blocks left to store
             })
 
-_storage_dir = CONFIG["storage_dir"]
-if not os.path.exists(_storage_dir):
-    logging.error("creating directory %s", _storage_dir)
-    os.mkdir(_storage_dir)
-if CONFIG["hashfunc"] == "sha1":
-    _hashfunc = hashlib.sha1
-else:
-    raise Exception("only sha1 hashfunction implemented yet")
-_blocksize = CONFIG["blocksize"]
-CHECKSUMS = [filename[:-4] for filename in os.listdir(_storage_dir)]
-logging.info("found %d checksums in storage directory", len(CHECKSUMS))
 
 class BlockStorage(object):
     """
@@ -84,10 +94,6 @@ class BlockStorage(object):
         """
         return os.path.join(_storage_dir, "%s.bin" % checksum)
 
-    @property
-    def checksums(self):
-        return CHECKSUMS
-
     @authenticator(CONFIG)
     @calllogger
     def GET(self, path):
@@ -100,7 +106,7 @@ class BlockStorage(object):
         if len(path) == 0:
             # ls behaviour if no path is given
             web.header("Content-Type", "application/json")
-            return json.dumps(self.checksums)
+            return json.dumps(_checksums)
         else:
             args = path.split("/")
             # get data behaviour
@@ -140,8 +146,8 @@ class BlockStorage(object):
             if not os.path.isfile(filename):
                 with open(filename, "wb") as outfile:
                     outfile.write(data)
-                global CHECKSUMS
-                CHECKSUMS.append(checksum) # remember newly created block
+                global _checksums
+                _checksums.append(checksum) # remember newly created block
             else:
                 web.ctx.status = '201 exists, not written'
                 logging.info("block %s already exists", filename)
@@ -184,8 +190,7 @@ class BlockStorage(object):
             web.notfound()
 
 
-if __name__ == "__main__":
-    app = web.application(urls, globals())
-    app.run()
-else:
-    application = web.application(urls, globals()).wsgifunc()
+#if __name__ == "__main__":
+#    app = web.application(urls, globals())
+#    app.run()
+#else:
