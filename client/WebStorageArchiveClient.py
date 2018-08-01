@@ -8,8 +8,8 @@ import json
 import logging
 import base64
 # own modules
-from webstorage.ClientConfig import ClientConfig
-from webstorage.WebStorageClient import WebStorageClient
+from webstorageClient.ClientConfig import ClientConfig
+from webstorageClient.WebStorageClient import WebStorageClient
 
 
 class WebStorageArchiveClient(WebStorageClient):

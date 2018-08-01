@@ -5,8 +5,8 @@ RestFUL Webclient to use BlockStorage WebApps
 """
 import logging
 # own modules
-from webstorage.ClientConfig import ClientConfig
-from webstorage.WebStorageClient import WebStorageClient
+from webstorageClient.ClientConfig import ClientConfig
+from webstorageClient.WebStorageClient import WebStorageClient
 
 class BlockStorageClient(WebStorageClient):
     """stores chunks of data into BlockStorage"""

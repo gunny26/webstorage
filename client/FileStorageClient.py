@@ -6,9 +6,9 @@ RestFUL Webclient to use FileStorage WebApp
 import json
 import logging
 # own modules
-from webstorage.ClientConfig import ClientConfig
-from webstorage.BlockStorageClient import BlockStorageClient
-from webstorage.WebStorageClient import WebStorageClient
+from webstorageClient.ClientConfig import ClientConfig
+from webstorageClient.BlockStorageClient import BlockStorageClient
+from webstorageClient.WebStorageClient import WebStorageClient
 
 
 class FileStorageClient(WebStorageClient):

@@ -9,7 +9,7 @@ import hashlib
 import logging
 import requests
 # own modules
-from webstorage.ClientConfig import ClientConfig
+from webstorageClient.ClientConfig import ClientConfig
 
 
 class WebStorageClient(object):
