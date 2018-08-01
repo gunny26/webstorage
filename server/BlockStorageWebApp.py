@@ -25,6 +25,8 @@ application = web.application(urls, globals()).wsgifunc()
 #print(web.ctx)
 #module_filename = web.ctx.environment.get("SCRIPT_NAME")
 #logging.info("module_filename %s", module_filename)
+global CONFIG
+CONFIG = None
 config_filename = "/var/www/BlockStorageWebApp_001.json" # omit .py extention
 logging.info("config_filename %s", config_filename)
 with open(os.path.join("/var/www", config_filename), "rt") as infile:
@@ -42,7 +44,6 @@ else:
 _checksums = [filename.split(".")[0] for filename in os.listdir(_storage_dir)] 
 logging.info("found %d existing checksums", len(_checksums))
 _blocksize = CONFIG["blocksize"]
-
 
 class BlockStorageInfo(object):
     """
