@@ -7,11 +7,11 @@ import web
 import os
 import sys
 import time
+import hashlib
+import json
 import logging
 FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
 logging.basicConfig(level=logging.INFO, format=FORMAT)
-import hashlib
-import json
 # own modules
 from webstorageServer.Decorators import authenticator, calllogger
 
@@ -20,17 +20,15 @@ urls = (
     "/(.*)", "BlockStorage",
 )
 
-application = web.application(urls, globals()).wsgifunc()
 # load global config and read initial checksums list
 #print(web.ctx)
 #module_filename = web.ctx.environment.get("SCRIPT_NAME")
 #logging.info("module_filename %s", module_filename)
-global CONFIG
-CONFIG = None
-config_filename = "/var/www/BlockStorageWebApp_001.json" # omit .py extention
+config_filename = "/var/www/BlockStorageWebApp.json" # omit .py extention
 logging.info("config_filename %s", config_filename)
-with open(os.path.join("/var/www", config_filename), "rt") as infile:
-        CONFIG = json.load(infile)
+with open(config_filename, "rt") as infile:
+    global CONFIG
+    CONFIG = json.load(infile)
 _storage_dir = CONFIG["storage_dir"]
 if not os.path.exists(_storage_dir):
     logging.error("creating directory %s", _storage_dir)
@@ -41,6 +39,7 @@ if _hashfunc == "sha1":
     _maxlength = 40 # lenght of sha1 checksum
 else:
     raise Exception("Config Error only sha1 checksums are implemented yet")
+logging.info("scanning directory %s", _storage_dir)
 _checksums = [filename.split(".")[0] for filename in os.listdir(_storage_dir)] 
 logging.info("found %d existing checksums", len(_checksums))
 _blocksize = CONFIG["blocksize"]
@@ -191,7 +190,9 @@ class BlockStorage(object):
             web.notfound()
 
 
-#if __name__ == "__main__":
-#    app = web.application(urls, globals())
-#    app.run()
-#else:
+if __name__ == "__main__":
+    app = web.application(urls, globals())
+    # app.run()
+    app.request("/info")
+else:
+    application = web.application(urls, globals()).wsgifunc()

@@ -23,9 +23,9 @@ urls = (
 # load global config and read initial checksums list
 module_filename = os.path.basename(sys.argv[0])
 logging.info("module_filename %s", module_filename)
-config_filename = module_filename[:-3] + ".json" # omit .py extention
+config_filename = "/var/www/FileStorageWebApp.json"
 logging.info("config_filename %s", config_filename)
-with open(os.path.join("/var/www", config_filename), "rt") as infile:
+with open(config_filename, "rt") as infile:
         CONFIG = json.load(infile)
 _storage_dir = CONFIG["storage_dir"]
 if not os.path.exists(_storage_dir):
