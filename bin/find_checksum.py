@@ -10,8 +10,9 @@ import datetime
 import sys
 import socket
 import argparse
+import tempfile
 import logging
-logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='%(message)s')
+logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 import json
@@ -20,27 +21,55 @@ import mimetypes
 # own modules
 from webstorage import WebStorageArchiveClient as WebStorageArchiveClient
 
-def main():
+def search_checksum(directory, checksum):
     """
     update or create local webstorage index database
     """
-    print(dbm.whichdb("test.dbm"))
-    with dbm.open("test.dbm", "cf") as db:
-        db.reorganize()
-        checksum = db.firstkey()
-        while checksum is not None:
-            print(checksum, len(json.loads(db[checksum])))
-            checksum = db.nextkey(checksum)
-        print("checksum 771be3eaed13f0f88889a78ec9f6df76f34f2161")
-        for backupset in json.loads(db["771be3eaed13f0f88889a78ec9f6df76f34f2161"]):
-            print("\t%s" % backupset)
+    filename = os.path.join(directory, "checksum_backupsets.dbm")
+    with dbm.open(filename, "cf") as db:
+        #db.reorganize()
+        #key = db.firstkey()
+        #while key is not None:
+        #    print(key, len(json.loads(db[key])))
+        #    key = db.nextkey(key)
+        print("searching checksum ", checksum)
+        try:
+            value = json.loads(db[checksum])
+            print(json.dumps(value, indent=4))
+            return value
+        except KeyError:
+            print("\t not found")
 
-def main1():
+def search_absfile(directory, absfile):
     """
     update or create local webstorage index database
     """
-    print(dbm.whichdb("test.dbm"))
-    with dbm.open("test.dbm", "cf") as db:
+    filename = os.path.join(directory, "absfilename_checksums.dbm")
+    with dbm.open(filename, "cf") as db:
+        #db.reorganize()
+        #key = db.firstkey()
+        #while key is not None:
+        #    value = json.loads(db[key])
+        #    if len(value) > 1:
+        #        print("%d\t%s" % (len(value), key))
+        #    key = db.nextkey(key)
+        print("searching absfile ", absfile)
+        try:
+            value = json.loads(db[absfile])
+            print(json.dumps(value, indent=4))
+            return value
+        except KeyError:
+            print("\t not found")
+
+
+def create_checksum_backupsets(directory):
+    """
+    update or create local webstorage index database
+    """
+    filename = os.path.join(directory, "checksum_backupsets.dbm")
+    backupsets_done = os.path.join(directory, "backupsets_done.dbm")
+    print("using dbm engine ", dbm.whichdb(filename))
+    with dbm.open(filename, "cf") as db:
         myhostname = socket.gethostname()
         wsa = WebStorageArchiveClient()
         backupsets = wsa.get_backupsets(myhostname)
@@ -55,11 +84,10 @@ def main1():
             #  'basename': 'wse0000107_privat_2016-10-05T23:00:00.000000.wstar.gz'
             # }
             print(backupset)
-            with dbm.open("backupset_done.dbm", "c") as db_backupsets:
+            with dbm.open(backupsets_done, "c") as db_backupsets:
                 if backupset["basename"] in db_backupsets:
                     print("already done")
                     continue
-            starttime = time.time()
             hostname, tag, isoformat_ext = backupset["basename"].split("_")
             print(hostname, tag, backupset["date"], backupset["time"])
             data = wsa.get(backupset["basename"])
@@ -70,18 +98,65 @@ def main1():
                 checksum = data["filedata"][absfile]["checksum"]
                 if checksum not in db:
                     print("%s first appeared in %s" % (checksum, backupset["basename"]))
-                    db[checksum] = json.dumps([backupset["basename"], ])
+                    db[checksum] = json.dumps(backupset)
                 else:
                     old = json.loads(db[checksum])
-                    if backupset["basename"] not in old: # update only if not in list
-                        print("%s appending backupset %s" % (checksum, backupset["basename"]))
-                        old.append(backupset["basename"])
-                        db[checksum] = json.dumps(old)
-            logging.info(" done in %0.2f s", time.time()-starttime)
-            with dbm.open("backupset_done.dbm", "c") as db_backupsets:
+                    if backupset["datetime"] > old["datetime"]:
+                        # print("%s found in backupset %s" % (checksum, backupset["basename"]))
+                        db[checksum] = json.dumps(backupset)
+            with dbm.open(backupsets_done, "c") as db_backupsets:
                 if backupset["basename"] not in db_backupsets:
                     db_backupsets[backupset["basename"]] = datetime.datetime.now().isoformat()
             db.reorganize()
+
+def create_absfilename_checksums(directory):
+    """
+    update or create local webstorage index database
+    """
+    filename = os.path.join(directory, "absfilename_checksums.dbm")
+    backupsets_done = os.path.join(directory, "absfilename_backupsets_done.dbm")
+    print("using dbm engine ", dbm.whichdb(filename))
+    with dbm.open(filename, "cf") as db:
+        myhostname = socket.gethostname()
+        wsa = WebStorageArchiveClient()
+        backupsets = wsa.get_backupsets(myhostname)
+        for backupset in backupsets:
+            # dict struct like
+            # {
+            #  'date': '2016-10-05',
+            #  'time': '23:00:00',
+            #  'datetime': '2016-10-05T23:00:00.000000',
+            #  'size': 303771,
+            #  'tag': 'privat',
+            #  'basename': 'wse0000107_privat_2016-10-05T23:00:00.000000.wstar.gz'
+            # }
+            print(backupset)
+            with dbm.open(backupsets_done, "c") as db_backupsets:
+                if backupset["basename"] in db_backupsets:
+                    print("already done")
+                    continue
+            hostname, tag, isoformat_ext = backupset["basename"].split("_")
+            print(hostname, tag, backupset["date"], backupset["time"])
+            data = wsa.get(backupset["basename"])
+            for absfile in data["filedata"].keys():
+                mime_type, content_encoding = mimetypes.guess_type(absfile)
+                # if mime_type is not None:
+                #     mime_to_absfile.add(absfile=absfile, mime_type=mime_type)
+                checksum = data["filedata"][absfile]["checksum"]
+                if absfile not in db:
+                    print("%s first appeared with %s" % (absfile, checksum))
+                    db[absfile] = json.dumps([checksum, ])
+                else:
+                    old = json.loads(db[absfile])
+                    if checksum not in old:
+                        # print("%s found in backupset %s" % (checksum, backupset["basename"]))
+                        old.append(checksum)
+                        db[absfile] = json.dumps(old)
+            with dbm.open(backupsets_done, "c") as db_backupsets:
+                if backupset["basename"] not in db_backupsets:
+                    db_backupsets[backupset["basename"]] = datetime.datetime.now().isoformat()
+            db.reorganize()
+
 
 def main1():
     """
@@ -114,4 +189,15 @@ def main1():
 
 
 if __name__ == "__main__":
-    main()
+    tmpdir = tempfile.gettempdir()
+    print("creating databases in temp firectory ", tmpdir)
+    create_absfilename_checksums(tmpdir)
+    create_checksum_backupsets(tmpdir)
+    file_to_search = "/home/mesznera/Dokumente/Patidok_performance/videobenchmark/auswertung.ods"
+    checksums = search_absfile(tmpdir, file_to_search)
+    if checksums:
+        print("found file %s in %d backupsets" % (file_to_search, len(checksums)))
+        for checksum in checksums:
+            search_checksum(tmpdir, checksum)
+    else:
+        print("file %s not found" % file_to_search)
