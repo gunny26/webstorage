@@ -8,7 +8,7 @@ import time
 import base64
 import gzip
 import logging
-FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
+FORMAT = 'WebStorageArchveWebApp.%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
 logging.basicConfig(level=logging.INFO, format=FORMAT)
 import json
 # own modules
@@ -65,7 +65,7 @@ class WebStorageArchive(object):
         else:
             # return named filename
             logging.debug("received b64encoded filename %s", args)
-            filename = base64.b64decode(args)
+            filename = base64.b64decode(args).decode("utf-8")
             logging.debug("decoded filename %s", filename)
             path = os.path.join(CONFIG["storage_dir"], web.ctx.env.get("HTTP_X_AUTH_TOKEN"), filename)
             web.header('Content-Type', 'application/json')
@@ -83,7 +83,7 @@ class WebStorageArchive(object):
             raise web.internalerror()
         else:
             logging.debug("received b64encoded filename %s", args)
-            filename = base64.b64decode(args)
+            filename = base64.b64decode(args).decode("utf-8")
             logging.debug("decoded filename %s", filename)
             path = os.path.join(CONFIG["storage_dir"], web.ctx.env.get("HTTP_X_AUTH_TOKEN"), filename)
             if os.path.isfile(path):

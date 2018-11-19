@@ -10,7 +10,7 @@ import time
 import hashlib
 import json
 import logging
-FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
+FORMAT = 'BlockStorageWebApp.%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
 logging.basicConfig(level=logging.INFO, format=FORMAT)
 # own modules
 from webstorageServer.Decorators import authenticator, calllogger

@@ -7,7 +7,7 @@ import os
 import sys
 import time
 import logging
-FORMAT = '%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
+FORMAT = 'FileStorageWebApp.%(module)s.%(funcName)s:%(lineno)s %(levelname)s : %(message)s'
 logging.basicConfig(level=logging.INFO, format=FORMAT)
 import json
 # own modules
@@ -178,12 +178,15 @@ class FileStorage(object):
         if len(checksum) != _maxlength:
             raise web.HTTPError("400 bad Requests: checksum is not sha1")
         try:
-            metadata = json.loads(web.data())
+            metadata = json.loads(web.data().decode("utf-8"))
         except TypeError as exc:
             raise web.HTTPError("400 Bad Request: JSON format error")
+        logging.debug(json.dumps(metadata))
         if metadata is not None:
             filename = self.__get_filename(checksum)
-            if metadata["checksum"] == checksum:
+            if metadata["checksum"] != checksum:
+                logging.debug("provided checksum in path : %s", checksum)
+                logging.debug("provided checksum in data : %s", metadata["checksum"])
                 raise web.HTTPError("400 Bad Request: checksum mismatch")
             if not os.path.isfile(filename):
                 self._dump(checksum, metadata)
@@ -193,12 +196,12 @@ class FileStorage(object):
                     existing = json.load(infile)
                     try:
                         assert existing == metadata
-                        self.logger.debug("Metadata for %s already stored", checksum)
+                        logging.debug("Metadata for %s already stored", checksum)
                         web.ctx.status = '201 metadata existed'
                     except AssertionError as exc:
-                        self.logger.exception(exc)
-                        self.logger.error("existing: %s", existing)
-                        self.logger.error("new: %s", metadata)
+                        logging.exception(exc)
+                        logging.error("existing: %s", existing)
+                        logging.error("new: %s", metadata)
         else:
             web.notfound()
 
@@ -224,7 +227,7 @@ class FileStorage(object):
         if len(checksum) != _maxlength:
             raise web.HTTPError("400 bad Requests: checksum is not sha1")
         try:
-            metadata = json.loads(web.data())
+            metadata = json.loads(web.data().decode("utf-8"))
         except TypeError as exc:
             raise web.HTTPError("400 Bad Request: JSON format error")
         if metadata:
