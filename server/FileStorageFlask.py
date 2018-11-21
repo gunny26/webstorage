@@ -3,15 +3,14 @@
 Webapp to store recipes for files chunked in blocks and stored in BlockStorage
 """
 import os
-import sys
-import time
-import hashlib
 import logging
 logging.basicConfig(level=logging.INFO)
 import json
-# own modules
+# non std modules
 import yaml
-from flask import Flask, request, send_file
+from flask import Flask, request
+# own modules
+from webstorageClient import BlockStorageClient
 
 app = Flask(__name__)
 logger = logging.getLogger("FileStorageFlask")
@@ -45,8 +44,6 @@ def download(file_checksum):
     """
     if os.path.isfile(_get_filename(file_checksum)):
         logger.info("found file with checksum %s", file_checksum)
-        web.header('Content-Type', 'application/octet-stream')
-        web.header('Transfer-Encoding', 'chunked')
         # omit Content-Length
         # disable compression of apache or other webservers
         with open(_get_filename(file_checksum), "rt") as infile:
@@ -122,8 +119,8 @@ def exists(checksum):
     UGLY : decorator
     """
     if not os.path.isfile(self.__get_filename(checksum)):
-        return "not found", 404
-    return "found", 200
+        return "checksum not found", 404
+    return "checksum found", 200
 
 @app.route("/<checksum>", methods=["PUT", "POST"])
 def put_checksum(checksum):
@@ -141,7 +138,7 @@ def put_checksum(checksum):
     BAD  : 404 if file not found
     UGLY : decorator or if no data is given
     """
-    if len(checksum) != _maxlength:
+    if len(checksum) != CONFIG("maxlength"):
         return "Bad Requests: checksum is not sha1", 400
     try:
         metadata = json.loads(request.data.decode("utf-8"))
@@ -159,6 +156,9 @@ def put_checksum(checksum):
     return "no data to store", 501
 
 def _get_filename(checksum):
+    """
+    get os filename for provided checksum
+    """
     assert len(checksum) == CONFIG["maxlength"]
     return os.path.join(CONFIG["storage_dir"], "%s.json" % checksum)
 
@@ -173,7 +173,6 @@ def _get_config(config_filename):
         logger.error("creating directory %s", config["storage_dir"])
         os.mkdir(config["storage_dir"])
     if config["hashfunc"] == "sha1":
-        config["hashfunc_func"] = hashlib.sha1
         config["maxlength"] = 40 # lenght of sha1 checksum
     else:
         raise Exception("Config Error only sha1 checksums are implemented yet")
