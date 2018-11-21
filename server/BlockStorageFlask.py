@@ -4,8 +4,6 @@ Blockstorage Web Application
 Backend to store chunks of Blocks to disk, and retrieve thru RestFUL API
 """
 import os
-import sys
-import time
 import hashlib
 import io
 import json
@@ -13,10 +11,11 @@ import logging
 logging.basicConfig(level=logging.INFO)
 # no-stdlib
 import yaml
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, send_file
 
 app = Flask(__name__)
 logger = logging.getLogger("BlockStorageFlask")
+
 
 @app.route('/info')
 def info():
@@ -30,15 +29,21 @@ def info():
     b_size = statvfs.f_blocks * statvfs.f_bsize / CONFIG["blocksize"]
     i_size = statvfs.f_files
     size = int(min(b_size, i_size))
-    return json.dumps({
-        "id" : CONFIG["id"],
-        "blocksize" : int(CONFIG["blocksize"]),
-        "blocks" : len(os.listdir(CONFIG["storage_dir"])), # number of stored blocks
-        "st_mtime" : os.stat(CONFIG["storage_dir"]).st_mtime,
-        "hashfunc" : CONFIG["hashfunc"],
-        "size" : size, # maximum number of blocks storable
-        "free" : free # maximum number of blocks left to store
-        })
+    global CHECKSUMS
+    response = app.response_class(
+        json.dumps({
+            "id" : CONFIG["id"],
+            "blocksize" : int(CONFIG["blocksize"]),
+            "blocks" : len(CHECKSUMS), # number of stored blocks
+            "st_mtime" : os.stat(CONFIG["storage_dir"]).st_mtime,
+            "hashfunc" : CONFIG["hashfunc"],
+            "size" : size, # maximum number of blocks storable
+            "free" : free # maximum number of blocks left to store
+            }),
+        status=200,
+        mimetype="application/json"
+    )
+    return response
 
 @app.route('/', methods=["GET"])
 def get_checksums():
@@ -61,9 +66,10 @@ def get_checksum(checksum):
     if os.path.isfile(filename):
         with open(filename, "rb") as infile:
             return send_file(
-                    io.BytesIO(infile.read()),
-                    attachment_filename='%s.bin' % checksum,
-                    mimetype='application/octet-stream')
+                io.BytesIO(infile.read()),
+                attachment_filename="%s.bin" % checksum,
+                mimetype="application/octet-stream"
+            )
     else:
         logger.error("File %s does not exist", filename)
         return "checksum not found", 404
@@ -92,6 +98,7 @@ def put_checksum(checksum):
         if not os.path.isfile(filename):
             with open(filename, "wb") as outfile:
                 outfile.write(data)
+            global CHECKSUMS
             CHECKSUMS.append(checksum) # store for further use
             return checksum, 200
         else:
@@ -128,6 +135,9 @@ def _get_filename(checksum):
     return os.path.join(CONFIG["storage_dir"], "%s.bin" % checksum)
 
 def _get_config(config_filename):
+    """
+    read configuration from yaml file
+    """
     logger.info("loading config_filename %s", config_filename)
     with open(config_filename, "rt") as infile:
         config = yaml.load(infile)
@@ -142,6 +152,9 @@ def _get_config(config_filename):
     return config
 
 def _get_checksums(storage_dir):
+    """
+    generate list of stored checksums in RAM
+    """
     logger.info("scanning directory %s", storage_dir)
     checksums = [filename.split(".")[0] for filename in os.listdir(storage_dir)] 
     logger.info("found %d existing checksums", len(checksums))
