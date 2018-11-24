@@ -16,6 +16,31 @@ from flask import Flask, request, send_file
 app = Flask(__name__)
 logger = logging.getLogger("BlockStorageFlask")
 
+def xapikey(config):
+    def _xapikey(func):
+        """
+        decorator to check for existance and validity of X-APIKEY header
+        """
+        def __xapikey(*args, **kwds):
+            if request.remote_addr in config["remote_addrs"]:
+                app.logger.error("call from trusted client %s", request.remote_addr)
+                return func(*args, **kwds)
+            x_token = request.headers.get("x-apikey")
+            if not x_token:
+                app.logger.error("X-APIKEY header not provided")
+                return "wrong usage", 401
+            if x_token not in config["apikeys"]:
+                app.logger.error("X-APIKEY is unknown")
+                abort(403)
+            if config["apikeys"][x_token]["remote_addrs"] and request.remote_addr not in config["apikeys"][x_token]["remote_addrs"]:
+                app.logger.error("call from %s with %s not allowed", request.remote_addr, x_token)
+                abort(403)
+            app.logger.info("authorized call from %s with %s", request.remote_addr, x_token)
+            return func(*args, **kwds)
+        __xapikey.__name__ = func.__name__ # crucial setting to not confuse flask
+        __xapikey.__doc__ = func.__doc__ # crucial setting to not confuse flask
+        return __xapikey
+    return _xapikey
 
 @app.route('/info')
 def info():
@@ -162,6 +187,9 @@ def _get_checksums(storage_dir):
 
 
 application = app # needed for WSGI Apache module
-CONFIG = _get_config("/var/www/BlockStorageWebApp.yaml")
+CONFIG = {}
+for key, value in _get_config("/var/www/BlockStorageWebApp.yaml").items():
+    CONFIG[key.lower()] = value
+    CONFIG[key.upper()] = value
 CHECKSUMS = _get_checksums(CONFIG["storage_dir"])
 
