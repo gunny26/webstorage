@@ -11,7 +11,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 # no-stdlib
 import yaml
-from flask import Flask, request, send_file
+from flask import Flask, request, send_file, Response
 
 app = Flask(__name__)
 logger = logging.getLogger("BlockStorageFlask")
@@ -69,6 +69,64 @@ def info():
         mimetype="application/json"
     )
     return response
+
+@app.route('/meta', methods=["GET"])
+def get_meta():
+    """
+    stream checksum informations like st_mtime, st_ctime, size ...
+    transfer encoded chunked, every line is json encoded structure
+    """
+    def generator():
+        global CHECKSUMS
+        for checksum in CHECKSUMS:
+            filename = _get_filename(checksum)
+            stat = os.stat(filename)
+            data = {
+                "filename" : os.path.basename(filename),
+                "st_size" : stat.st_size,
+                "st_mtime" : stat.st_mtime,
+                "st_ctime" : stat.st_ctime
+            }
+            yield json.dumps(data) + "\n"
+    return Response(generator(), mimetype="text/html")
+
+@app.route('/stream', methods=["GET"])
+def get_stream():
+    """
+    stream checksum binary data according to list of checksums provided
+    data has to be in this format
+    Content-Type : application/json is necessary to parse data the right way
+    {
+        "blockchain": [
+            "d53b49de8175782729f614026e2155bec9252ec0"
+        ],
+        "blockhash_exists": 0,
+        "checksum": "d53b49de8175782729f614026e2155bec9252ec0",
+        "filehash_exists": false,
+        "mime_type": "application/octet-stream",
+        "size": 854527
+    }
+    TODO: whats the upper limit on DATA size?
+    """
+    try:
+        data = request.get_json()
+        if "blockchain" not in data:
+            return "Bad Request: JSON attributes missing", 400
+    except (ValueError, TypeError) as exc:
+        return "Bad Request: JSON format error", 400
+    mimetype = "application/octet-stream"
+    if "mime_type" in data:
+        mimetype = data["mime_type"]
+    def generator():
+        length = 0
+        for checksum in data["blockchain"]:
+            filename = _get_filename(checksum)
+            with open(filename, "rb") as infile:
+                bin_data = infile.read()
+                yield bin_data
+                length += len(bin_data)
+        logger.info("streamed %d blocks containing %d bytes", len(data["blockchain"]), length)
+    return Response(generator(), mimetype=mimetype)
 
 @app.route('/', methods=["GET"])
 def get_checksums():
@@ -145,7 +203,7 @@ def options(checksum):
     """
     if checksum in CHECKSUMS or os.path.exists(_get_filename(checksum)):
         return "checksum exists", 200
-    return "checksum not foun", 404
+    return "checksum not found", 404
 
 def _get_filename(checksum):
     """
