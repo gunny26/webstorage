@@ -38,7 +38,7 @@ def status():
 
 
 if __name__ == "__main__":
-    bs = BlockStorageClient()
+    bs = BlockStorageClient(url="http://192.168.1.168/bs001", apikey="")
     print(json.dumps(bs.info, indent=4))
     num_worker_threads = 4
     starttime = time.time()
