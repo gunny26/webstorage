@@ -13,7 +13,21 @@ A webbased File-/BlockStorage written in 100% in python3.
   * deduplication on file level
   * distributable, syncable, scaleable
 
-## BlockStorage
+## Backend Webservices
+
+tested on raspian stretch or ubuntu 16.04
+
+### software needed
+
+   * sudo apt install apache2
+   * sudo apt install libapache2-mod-wsgi-py3
+   * sudo apt install python3
+   * sudo apt install python3-flask
+   * sudo apt install python3-yaml
+   * sudo a2enmod wsgi
+   * sudo systemctl restart apache2
+
+### BlockStorage
 
 this restful webservice will store chunks of binary data to filesystem.
 probably you will give BlockStorage a whole volume (either classical disk or LVM) to store it's chunks on.
@@ -21,7 +35,7 @@ BlockStorage will produce many inodes so it will be best to format with XFS.
 
 Chunks will be stored under SHA1 checksum name on disk, so there is a built in verification.
 
-## FileStorage
+### FileStorage
 
 FileStorage will store a plan to build large binary data out of chunks from BlockStorage.
 FileStorage will therefor save some json data, called the recipe, to reproduce every binary data.
@@ -30,7 +44,7 @@ These recipe will be stored unter SHA1 checksum of the whole binary data, so the
 Filestorage will not store the original name nor meta data of this file,
 it's only a binary data stream cut into pieces with maximum 1MB length.
 
-### how to get sha1 checksum of any file
+#### how to get sha1 checksum of any file
 
 ```bash
 pi@cloud:/opt/webstorage/devel $ sha1sum ../setup.py 
@@ -122,11 +136,11 @@ mesznera@ws00007999:~/gits/webstorage$ hexdump test.bin
 00003f6
 ```
 
-## WebstorageArchive
+### WebstorageArchive
 
 Backend Webservice to store TAR like archives, providing checksums and metadata of files.
 It is using FileStorage and BlockStorage under his hood to provide file and block deduplication.
 
-## WebstorageClient
+## Client side modules
 
 Python based client module to use BlockStorage and FileStorage very easy.
