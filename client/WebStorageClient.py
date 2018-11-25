@@ -23,7 +23,8 @@ class WebStorageClient(object):
         self._headers = {
             "user-agent": "%s-%s" % (self.__class__.__name__, self._version),
             "x-auth-token" : self._apikey,
-            "x-apikey" : self._apikey
+            "x-apikey" : self._apikey,
+            "connection" : "keep-alive",
         }
         self._proxies = {}
         if self._client_config.https_proxy:
@@ -36,12 +37,8 @@ class WebStorageClient(object):
         """
         single point of request
         """
-        # if HTTPS_PROXY is set in config file use this information
-        #proxies = {}
-        #if "HTTPS_PROXY" in self._config:
-        #    proxies = {"https": self._config["HTTPS_PROXY"]}
         url = "/".join((self._url, path))
-        res = self._session.request(method, url, data=data, headers=self._headers, proxies=self._proxies)
+        res = self._session.request(method, url, data=data, headers=self._headers, proxies=self._proxies, timeout=10)
         if 199 < res.status_code < 300:
             return res
         elif 399 < res.status_code < 500:
