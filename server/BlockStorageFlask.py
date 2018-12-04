@@ -7,45 +7,45 @@ import os
 import hashlib
 import io
 import json
+import time
 import logging
 logging.basicConfig(level=logging.INFO)
 # no-stdlib
 import yaml
-from flask import Flask, request, send_file, Response
+from flask import Flask, request, send_file, send_from_directory, Response
 
 app = Flask(__name__)
 logger = logging.getLogger("BlockStorageFlask")
 
-def xapikey(config):
-    def _xapikey(func):
-        """
-        decorator to check for existance and validity of X-APIKEY header
-        """
-        def __xapikey(*args, **kwds):
-            if request.remote_addr in config["remote_addrs"]:
-                app.logger.error("call from trusted client %s", request.remote_addr)
-                return func(*args, **kwds)
-            x_token = request.headers.get("x-apikey")
-            if not x_token:
-                app.logger.error("X-APIKEY header not provided")
-                return "wrong usage", 401
-            if x_token not in config["apikeys"]:
-                app.logger.error("X-APIKEY is unknown")
-                abort(403)
-            if config["apikeys"][x_token]["remote_addrs"] and request.remote_addr not in config["apikeys"][x_token]["remote_addrs"]:
-                app.logger.error("call from %s with %s not allowed", request.remote_addr, x_token)
-                abort(403)
-            app.logger.info("authorized call from %s with %s", request.remote_addr, x_token)
+def xapikey(func):
+    """
+    decorator to check for existance and validity of X-APIKEY header
+    """
+    def _xapikey(*args, **kwds):
+        if request.remote_addr in CONFIG["remote_addrs"]:
+            app.logger.error("call from trusted client %s", request.remote_addr)
             return func(*args, **kwds)
-        __xapikey.__name__ = func.__name__ # crucial setting to not confuse flask
-        __xapikey.__doc__ = func.__doc__ # crucial setting to not confuse flask
-        return __xapikey
+        x_token = request.headers.get("x-apikey")
+        if not x_token:
+            app.logger.error("X-APIKEY header not provided")
+            return "wrong usage", 401
+        if x_token not in CONFIG["apikeys"]:
+            app.logger.error("X-APIKEY is unknown")
+            return "x-apikey unknown", 403
+        if CONFIG["apikeys"][x_token]["remote_addrs"] and request.remote_addr not in CONFIG["apikeys"][x_token]["remote_addrs"]:
+            app.logger.error("call from %s with %s not allowed", request.remote_addr, x_token)
+            return "call from wrong remote_addr", 403
+        app.logger.info("authorized call from %s with %s", request.remote_addr, x_token)
+        return func(*args, **kwds)
+    _xapikey.__name__ = func.__name__ # crucial setting to not confuse flask
+    _xapikey.__doc__ = func.__doc__ # crucial setting to not confuse flask
     return _xapikey
 
 @app.route('/info')
+@xapikey
 def info():
     """
-    get some statistical data from blockstorage
+    get some statistical data from BlockStorage Backend
     """
     statvfs = os.statvfs(CONFIG["storage_dir"])
     b_free = statvfs.f_bfree * statvfs.f_bsize / CONFIG["blocksize"]
@@ -71,18 +71,18 @@ def info():
     return response
 
 @app.route('/meta', methods=["GET"])
+@xapikey
 def get_meta():
     """
     stream checksum informations like st_mtime, st_ctime, size ...
     transfer encoded chunked, every line is json encoded structure
     """
     def generator():
-        global CHECKSUMS
         for checksum in CHECKSUMS:
             filename = _get_filename(checksum)
             stat = os.stat(filename)
             data = {
-                "filename" : os.path.basename(filename),
+                "filename" : checksum,
                 "st_size" : stat.st_size,
                 "st_mtime" : stat.st_mtime,
                 "st_ctime" : stat.st_ctime
@@ -91,6 +91,7 @@ def get_meta():
     return Response(generator(), mimetype="text/html")
 
 @app.route('/stream', methods=["GET"])
+@xapikey
 def get_stream():
     """
     stream checksum binary data according to list of checksums provided
@@ -100,9 +101,9 @@ def get_stream():
         "blockchain": [
             "d53b49de8175782729f614026e2155bec9252ec0"
         ],
-        "blockhash_exists": 0,
-        "checksum": "d53b49de8175782729f614026e2155bec9252ec0",
-        "filehash_exists": false,
+        "blockhash_exists": 0, # not used at all
+        "checksum": "d53b49de8175782729f614026e2155bec9252ec0", # not used at all
+        "filehash_exists": false, # not used at all
         "mime_type": "application/octet-stream",
         "size": 854527
     }
@@ -126,38 +127,40 @@ def get_stream():
                 yield bin_data
                 length += len(bin_data)
         logger.info("streamed %d blocks containing %d bytes", len(data["blockchain"]), length)
+        logger.info("size in request was %s", data["size"])
     return Response(generator(), mimetype=mimetype)
 
 @app.route('/', methods=["GET"])
+@xapikey
 def get_checksums():
     """
     if no argument is given return a list of available blockchecksums
     """
+    starttime = time.time()
     response = app.response_class(
-        response=json.dumps(CHECKSUMS),
+        response=json.dumps(CHECKSUMS), # TODO: this could use much memory
         status=200,
         mimetype='application/json'
     )
+    logger.info("response prepared in %0.2f" % (time.time() - starttime))
     return response
 
 @app.route('/<checksum>', methods=["GET"])
+@xapikey
 def get_checksum(checksum):
     """
-    if called with argument in URI, try to find the specified block,
+    send binary block with checksum to client
+    mimetype is always set to application/octet-stream
     """
     filename = _get_filename(checksum)
     if os.path.isfile(filename):
-        with open(filename, "rb") as infile:
-            return send_file(
-                io.BytesIO(infile.read()),
-                attachment_filename="%s.bin" % checksum,
-                mimetype="application/octet-stream"
-            )
+        return send_from_directory(CONFIG["storage_dir"], "%s.bin" % checksum, mimetype="application/octet-stream")
     else:
         logger.error("File %s does not exist", filename)
         return "checksum not found", 404
 
 @app.route('/<checksum>', methods=["PUT"])
+@xapikey
 def put_checksum(checksum):
     """
     PUT some new data to Blockstorage
@@ -181,7 +184,6 @@ def put_checksum(checksum):
         if not os.path.isfile(filename):
             with open(filename, "wb") as outfile:
                 outfile.write(data)
-            global CHECKSUMS
             CHECKSUMS.append(checksum) # store for further use
             return checksum, 200
         else:
@@ -191,6 +193,7 @@ def put_checksum(checksum):
         return "no data to store", 501
 
 @app.route('/<checksum>', methods=["OPTIONS"])
+@xapikey
 def options(checksum):
     """
     get some information of this checksum, but no data
@@ -204,6 +207,8 @@ def options(checksum):
     if checksum in CHECKSUMS or os.path.exists(_get_filename(checksum)):
         return "checksum exists", 200
     return "checksum not found", 404
+
+################# private functions ##############################
 
 def _get_filename(checksum):
     """
@@ -245,9 +250,11 @@ def _get_checksums(storage_dir):
 
 
 application = app # needed for WSGI Apache module
-CONFIG = {}
-for key, value in _get_config("/var/www/BlockStorageWebApp.yaml").items():
+app.config["app_config"] = {}
+CONFIG = app.config["app_config"]
+for key, value in _get_config("/var/www/BlockStorageWebApp.yaml").items(): # TODO: make this relative
     CONFIG[key.lower()] = value
-    CONFIG[key.upper()] = value
+app.config["app_checksums"] = {}
+CHECKSUMS = app.config["app_checksums"]
 CHECKSUMS = _get_checksums(CONFIG["storage_dir"])
 

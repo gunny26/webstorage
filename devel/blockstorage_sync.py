@@ -15,15 +15,14 @@ from webstorageClient import BlockStorageClient as BlockStorageClient
 def verify():
     while True:
         checksum = q.get()
+        if not checksum:
+            break
         try:
-            if not checksum:
-                break
-            #print("%s : checking %s" % (threading.get_ident(), checksum))
-            try:
-                block = bs.get_verify(checksum)
-                bs_target.put(block)
-            except AssertionError as exc:
-                print(exc)
+            checksum_target, status_code = bs_target.put(bs.get(checksum))
+            print("%s : synced %s - %s" % (threading.get_ident(), checksum, checksum_target))
+            assert checksum_target == checksum
+        except Exception as exc:
+            print(exc)
         finally:
             q.task_done()
 
@@ -41,14 +40,21 @@ def status():
 if __name__ == "__main__":
     bs = BlockStorageClient()
     print(json.dumps(bs.info, indent=4))
-    bs_target = BlockStorageClient(url="http://192.168.1.168/bs001/", apikey="") 
+    bs_target = BlockStorageClient(url="http://neutrino.messner.click/bs001", apikey="")
     print(json.dumps(bs_target.info, indent=4))
     num_worker_threads = 8
+    # preparing list of checksums
     starttime = time.time()
+    print("building list of differing blocks")
+    checksums = [checksum for checksum in bs.checksums if checksum not in bs_target.checksums]
+    print("done in %0.2f found %d blocks to sync", (time.time() - starttime, len(checksums)))
+    starttime = time.time()
+    print("preparing queue")
     q =queue.Queue() # put checksums in Queue
-    for item in bs.checksums:
+    for item in checksums:
         q.put(item)
-    print("loading list of %d checksums in %0.2f" % (len(bs.checksums), time.time() - starttime))
+    print("done in %0.2f" % (time.time() - starttime))
+    # preparing threads
     status = threading.Thread(target=status)
     status.start()
     threads = []
