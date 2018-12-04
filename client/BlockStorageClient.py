@@ -50,8 +50,8 @@ class BlockStorageClient(WebStorageClient):
         """
         url = "/".join((self._url, method))
         if data is not None:
-            print("adding search parameters : %s", data)
-        print("calling %s" % url)
+            self._logger.info("adding search parameters : %s", data)
+        self._logger.info("calling %s", url)
         res = requests.get(url, params=data, headers=self.__headers, proxies=self.__proxies, stream=True)
         logging.debug("got Status code : %s", res.status_code)
         if res.status_code == 200:
@@ -77,22 +77,20 @@ class BlockStorageClient(WebStorageClient):
             self._checksums.add(checksum) # add to local cache
             return res.text, res.status_code
 
-    def get(self, checksum):
+    def get(self, checksum, verify=False):
         """
         get data defined by hexdigest from storage
-        """
-        res = self._request("get", checksum)
-        return res.content
-
-    def get_verify(self, checksum):
-        """
-        get data defined by hexdigest from storage and verify received block to check integrity
+        if verify - recheck checksum locally
         """
         res = self._request("get", checksum)
         data = res.content
-        if checksum != self._blockdigest(data):
-            raise AssertionError("Checksum mismatch %s requested, %s get" % (checksum, self._blockdigest(data)))
+        if verify:
+            if checksum != self._blockdigest(data):
+                raise AssertionError("Checksum mismatch %s requested, %s get" % (checksum, self._blockdigest(data)))
         return data
+
+    def get_verify(self, checksum):
+        return self.get(checksum, True)
 
     def exists(self, checksum):
         """
