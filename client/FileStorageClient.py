@@ -48,6 +48,10 @@ class FileStorageClient(WebStorageClient):
             self._checksums = set(self._get_json())
         return self._checksums
 
+    @property
+    def info(self):
+        return self._info # TODO: is this necessary
+
     def put(self, fh, mime_type="application/octet-stream"):
         """
         save data of fileobject in Blockstorage

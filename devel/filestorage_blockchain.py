@@ -2,7 +2,7 @@
 import hashlib
 import sqlite3
 # own modules
-from webstorageClient import BlockStorageClient
+from webstorageClient import FileStorageClient
 
 def blockchain_init(con, sha256_seed):
     """
@@ -30,13 +30,14 @@ def blockchain_last(con):
     return {"epoch" : epoch, "sha256_checksum" : sha256.decode("ascii")}
 
 
-bsc = BlockStorageClient()
+checksums = None
+bsc = FileStorageClient()
 print(bsc.info)
 sha256 = hashlib.sha256()
-sha256.update("70b1b85c-e64c-4445-a02f-0ed612ff8ff3".encode("ascii"))
+sha256.update(bsc.info["id"].encode("ascii"))
 seed =  sha256.hexdigest()
 print(seed)
-with sqlite3.connect("blockchain.db") as con:
+with sqlite3.connect("fs_blockchain.db") as con:
     blockchain_init(con, seed)
     for epoch, checksum in enumerate(bsc.checksums):
         blockchain_add(con, checksum)
