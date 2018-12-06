@@ -3,9 +3,11 @@
 Webapp to store recipes for files chunked in blocks and stored in BlockStorage
 """
 import os
+import json
+import hashlib
+import sqlite3
 import logging
 logging.basicConfig(level=logging.INFO)
-import json
 # non std modules
 import yaml
 from flask import Flask, request
@@ -49,14 +51,17 @@ def info():
     statvfs = os.statvfs(CONFIG["storage_dir"])
     free = statvfs.f_bfree * statvfs.f_bsize
     size = statvfs.f_blocks * statvfs.f_bsize
-    global CHECKSUMS
+    blockchain = _blockchain_last()
     response = app.response_class(
         json.dumps({
+            "id" : CONFIG["id"],
             "files" : len(CHECKSUMS), # number of stored files
             "st_mtime" : os.stat(CONFIG["storage_dir"]).st_mtime,
             "hashfunc" : CONFIG["hashfunc"],
             "free" : free,
-            "size" : size
+            "size" : size,
+            "epoch" : blockchain["epoch"], # blockchain epoch
+            "sha256_checksum" : blockchain["sha256_checksum"], # last blockchain hash
             }),
         status=200,
         mimetype="application/json"
@@ -105,7 +110,6 @@ def get_checksums():
     UGLY : decorator
     """
     # no checksum given, do ls style
-    global CHECKSUMS
     response = app.response_class(
         json.dumps(CHECKSUMS),
         status=200,
@@ -176,10 +180,12 @@ def put_checksum(checksum):
         filename = _get_filename(checksum)
         with open(filename, "wt") as outfile:
             json.dump(metadata, outfile)
-            global CHECKSUMS
-            CHECKSUMS.append(checksum)
+            _blockchain_add(checksum) # store in db
+            CHECKSUMS.append(checksum) # store in RAM
         return "checksum stored", 200
     return "no data to store", 501
+
+####################### private functions #################################
 
 def _get_filename(checksum):
     """
@@ -213,9 +219,78 @@ def _get_checksums(storage_dir):
     logger.info("found %d existing checksums", len(checksums))
     return checksums
 
+def _blockchain_init(sha256_seed):
+    """
+    initialize blockchain table with first entry aka epoch 0
+    """
+    with sqlite3.connect(DB_FILENAME) as con:
+        c = con.cursor()
+        res = c.execute("SELECT name FROM sqlite_master WHERE name='blockchain'")
+        if not res.fetchone():
+            logger.info("creating table blockchain and inserting seed checksum")
+            c.execute("create table if not exists blockchain (checksum char(40), sha256 char(64))")
+            c.execute("insert into blockchain values (?, ?)", (None, sha256_seed.encode("ascii")))
+            con.commit()
+
+def _blockchain_add(checksum):
+    """
+    add checksum to blockchain and return epoch and last sha56
+    """
+    with sqlite3.connect(DB_FILENAME) as con:
+        c = con.cursor()
+        last_epoch = c.execute("select rowid, sha256 from blockchain order by rowid desc limit 1")
+        epoch, last_sha256 = last_epoch.fetchone()
+        sha256 = hashlib.sha256()
+        sha256.update(str(epoch).encode("ascii") + last_sha256 + checksum.encode("ascii"))
+        # print(epoch, last_sha256, sha256.hexdigest())
+        c.execute("insert into blockchain values (?, ?)", (checksum.encode("ascii"), sha256.hexdigest().encode("ascii")))
+        return {"epoch" : epoch, "sha256_checksum" : sha256.hexdigest().encode("ascii")}
+
+def _blockchain_last():
+    """
+    return last epoch and last sha256
+    """
+    with sqlite3.connect(DB_FILENAME) as con:
+        c = con.cursor()
+        last_epoch = c.execute("select rowid, sha256 from blockchain order by rowid desc limit 1")
+        epoch, sha256 = last_epoch.fetchone()
+        return {"epoch" : epoch, "sha256_checksum" : sha256.decode("ascii")}
+
+def _blockchain_checksums():
+    """
+    return all checksums
+    """
+    with sqlite3.connect(DB_FILENAME) as con:
+        c = con.cursor()
+        checksums = c.execute("select checksum from blockchain where checksum is not null").fetchall()
+        logger.info("found %d checksums in database", len(checksums))
+        return [checksum[0].decode("ascii") for checksum in checksums]
+
+def _blockchain_diff(epoch):
+    """
+    return all checksums after epoch
+    """
+    with sqlite3.connect(DB_FILENAME) as con:
+        c = con.cursor()
+        checksums = c.execute("select checksum from blockchain where rowid>?", (epoch,)).fetchall()
+        return [checksum[0].decode("ascii") for checksum in checksums]
+
+logger.info("INIT started")
 application = app # needed for WSGI Apache module
-CONFIG = {}
+app.config["app_config"] = {}
+CONFIG = app.config["app_config"]
 for key, value in _get_config("/var/www/FileStorageWebApp.yaml").items():
     CONFIG[key.lower()] = value
-    CONFIG[key.upper()] = value
-CHECKSUMS = _get_checksums(CONFIG["storage_dir"])
+app.config["app_checksums"] = []
+# initialize blockchain database
+DB_FILENAME = app.config["app_config"]["blockchain_db"]
+seed_sha256 = hashlib.sha256()
+seed_sha256.update(app.config["app_config"]["id"].encode("ascii"))
+_blockchain_init(seed_sha256.hexdigest())
+CHECKSUMS = app.config["app_checksums"]
+CHECKSUMS = _blockchain_checksums()
+logger.info("found %d checksums in blockchain database", len(CHECKSUMS))
+checksums_fs = _get_checksums(CONFIG["storage_dir"]) # TODO: skip this after transition
+logger.info("found %d checksums in filesystem", len(checksums_fs))
+assert len(checksums_fs) == len(CHECKSUMS)
+logger.info("INIT finished")

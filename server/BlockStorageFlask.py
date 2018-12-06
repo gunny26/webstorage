@@ -55,7 +55,7 @@ def info():
     b_size = statvfs.f_blocks * statvfs.f_bsize / CONFIG["blocksize"]
     i_size = statvfs.f_files
     size = int(min(b_size, i_size))
-    blockchain= _blockchain_last()
+    blockchain = _blockchain_last()
     response = app.response_class(
         json.dumps({
             "id" : CONFIG["id"],
