@@ -192,7 +192,7 @@ def put_checksum(checksum):
                     return checksum, 200 # TODO: think about returning epoch and last hash
             else:
                 logger.info("block %s already exists", filename)
-                return "checksum already exists", 201
+                return checksum, 201
         else:
             return "checksum mismatch", 500
     else:
@@ -326,7 +326,7 @@ _blockchain_init(seed_sha256.hexdigest())
 CHECKSUMS = app.config["app_checksums"]
 CHECKSUMS = _blockchain_checksums()
 logger.info("found %d checksums in blockchain database", len(CHECKSUMS))
-checksums_fs = _get_checksums(CONFIG["storage_dir"])
-logger.info("found %d checksums in filesystem", len(checksums_fs))
-assert len(checksums_fs) == len(CHECKSUMS)
+#checksums_fs = _get_checksums(CONFIG["storage_dir"])
+#logger.info("found %d checksums in filesystem", len(checksums_fs))
+#assert len(checksums_fs) == len(CHECKSUMS)
 logger.info("INIT finished")
