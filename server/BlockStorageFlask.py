@@ -148,6 +148,25 @@ def get_checksums():
     logger.info("response prepared in %0.2f" % (time.time() - starttime))
     return response
 
+@app.route('/journal/<int:epoch>', methods=["GET"])
+@xapikey
+def get_journal(epoch):
+    """
+    return all checksums past epoch provided
+    """
+    starttime = time.time()
+    with sqlite3.connect(DB_FILENAME) as con:
+        c = con.cursor()
+        checksums = c.execute("select checksum from blockchain where rowid > ?", (epoch,)).fetchall()
+        checksum_json = [checksum[0].decode("ascii") for checksum in checksums]
+        logger.info("found %d checksums past epoch %d", len(checksums), epoch)
+        response = app.response_class(
+            response=json.dumps(checksum_json), # TODO: this could use much memory
+            status=200,
+            mimetype='application/json'
+        )
+        return response
+
 @app.route('/<checksum>', methods=["GET"])
 @xapikey
 def get_checksum(checksum):
