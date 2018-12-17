@@ -38,13 +38,13 @@ class WebStorageClient(object):
         single point of request
         """
         url = "/".join((self._url, path))
-        res = self._session.request(method, url, data=data, headers=self._headers, proxies=self._proxies, timeout=10)
-        if 199 < res.status_code < 300:
-            return res
-        elif 399 < res.status_code < 500:
-            raise KeyError("HTTP_STATUS %s received" % res.status_code)
-        elif 499 < res.status_code < 600:
-            raise IOError("HTTP_STATUS %s received" % res.status_code)
+        with self._session.request(method, url, data=data, headers=self._headers, proxies=self._proxies, timeout=10) as res:
+            if 199 < res.status_code < 300:
+                return res
+            elif 399 < res.status_code < 500:
+                raise KeyError("HTTP_STATUS %s received" % res.status_code)
+            elif 499 < res.status_code < 600:
+                raise IOError("HTTP_STATUS %s received" % res.status_code)
 
     def _get_json(self, path=""):
         """
@@ -64,15 +64,13 @@ class WebStorageClient(object):
         url = "/".join((self._url, method))
         if data is not None:
             self._logger.info("adding search parameters : %s", data)
-        self._logger.info("calling %s", url)
-        res = requests.get(url, params=data, headers=self._headers, proxies=self._proxies, stream=True)
-        logging.debug("got Status code : %s", res.status_code)
-        if res.status_code == 200:
-            return res
-        elif res.status_code == 404:
-            raise KeyError("HTTP 404 received")
-        else:
-            raise Exception("got status %d for call to %s" % (res.status_code, url))
+        with requests.get(url, params=data, headers=self._headers, proxies=self._proxies, stream=True) as res:
+            if res.status_code == 200:
+                return res
+            elif res.status_code == 404:
+                raise KeyError("HTTP 404 received")
+            else:
+                raise Exception("got status %d for call to %s" % (res.status_code, url))
 
     def _blockdigest(self, data):
         """

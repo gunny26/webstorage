@@ -258,7 +258,7 @@ def options(checksum):
 
     either raise 404
     """
-    if checksum in CHECKSUMS or os.path.exists(_get_filename(checksum)):
+    if (checksum in CHECKSUMS) or os.path.exists(_get_filename(checksum)):
         return "checksum exists", 200
     return "checksum not found", 404
 

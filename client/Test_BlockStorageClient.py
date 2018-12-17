@@ -10,13 +10,16 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
-from BlockStorageClient import BlockStorageClient as BlockStorageClient
+from BlockStorageClient import BlockStorageClient
+from BlockStorageClient import BlockStorageError
 
+
+BS = BlockStorageClient()
 
 class Test(unittest.TestCase):
 
     def setUp(self):
-        self.bs = BlockStorageClient()
+        self.bs = BS
 
     def test_info(self):
         info = self.bs.info
@@ -63,7 +66,7 @@ class Test(unittest.TestCase):
         info = self.bs.info
         epoch = self.bs.get_epoch(info["blockchain_epoch"])
         journal = self.bs.get_journal(info["blockchain_epoch"] - 1)
-        bin_data = self.bs.get_checksums(epoch=info["blockchain_epoch"] - 1)
+        bin_data = self.bs.get_checksums(epoch=info["blockchain_epoch"] - 1, filename="test.bin")
         print(json.dumps(bin_data, indent=4))
 
     def test_put(self):
@@ -82,7 +85,10 @@ class Test(unittest.TestCase):
         data = "A" * 1025 * 1024
         data = data.encode("ascii")
         print(len(data))
-        checksum, status = self.bs.put(data)
+        try:
+            checksum, status = self.bs.put(data)
+        except BlockStorageError as exc:
+            print(exc)
 
     def test_get_verify(self):
         data = "A" * 1024
@@ -97,6 +103,11 @@ class Test(unittest.TestCase):
         checksum, status = self.bs.put(data)
         self.assertTrue(self.bs.exists(checksum))
         self.assertTrue(self.bs.exists("0" * 40)) # illegal checksum
+
+    def test_checksums(self):
+        checksums = self.bs.checksums
+        print("number of checksums %d cached" % len(checksums))
+        self.assertEqual(len(checksums), self.bs.info["blocks"])
 
 
 
