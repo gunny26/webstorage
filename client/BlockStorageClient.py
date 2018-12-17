@@ -3,10 +3,15 @@
 """
 RestFUL Webclient to use BlockStorage WebApps
 """
+import os
+import requests
 import logging
 # own modules
 from webstorageClient.ClientConfig import ClientConfig
 from webstorageClient.WebStorageClient import WebStorageClient
+
+class BlockStoragError(Exception):
+    pass
 
 class BlockStorageClient(WebStorageClient):
     """stores chunks of data into BlockStorage"""
@@ -27,6 +32,8 @@ class BlockStorageClient(WebStorageClient):
         # get info from backend
         self._cache = cache # cache blockdigests or not
         self._info = self._get_json("info")
+        self._cachefile = "%s_%s.bin" % (self._info["id"], self._info["blockchain_epoch"])
+        self._cachefile = os.path.join(self._client_config.homepath, self._cachefile)
         self._checksums = set()
 
     @property
@@ -52,7 +59,7 @@ class BlockStorageClient(WebStorageClient):
         if data is not None:
             self._logger.info("adding search parameters : %s", data)
         self._logger.info("calling %s", url)
-        res = requests.get(url, params=data, headers=self.__headers, proxies=self.__proxies, stream=True)
+        res = requests.get(url, params=data, headers=self._headers, proxies=self._proxies, stream=True)
         logging.debug("got Status code : %s", res.status_code)
         if res.status_code == 200:
             return res
@@ -61,9 +68,38 @@ class BlockStorageClient(WebStorageClient):
         else:
             raise Exception("got status %d for call to %s" % (res.status_code, url))
 
+    def get_info(self):
+        """
+        get some information about backend
+        """
+        self._info = self._get_json("info")
+        return self._info
+
+    def get_epoch(self, epoch):
+        """
+        return blockchain data at epoch
+        """
+        return self._get_json("epoch/%d" % epoch)
+
+    def get_journal(self, epoch):
+        """
+        return blockchain journal starting at epoch
+        """
+        return self._get_json("journal/%d" % epoch)
+
+    def get_checksums(self, epoch):
+        """
+        write binary blob of checksums to cachefile
+        """
+        res = self._get_chunked("checksums/%d" % epoch)
+        with open(self._cachefile, "wb") as outfile:
+            for chunk in res:
+                outfile.write(chunk)
+
     def put(self, data, use_cache=False):
         """put some arbitrary data into storage"""
-        assert len(data) <= self.blocksize # assure maximum length
+        if len(data) > self.blocksize: # assure maximum length
+            raise BlockStorageError("length of providede data (%s) is above maximum blocksize of %s" % (len(data), self.blocksize))
         checksum = self._blockdigest(data)
         if use_cache and checksum in self.checksums:
             self._logger.debug("202 - skip this block, checksum is in list of stored checksums")
@@ -73,7 +109,7 @@ class BlockStorageClient(WebStorageClient):
             if res.status_code == 201:
                 self._logger.debug("201 - block rewritten")
             if res.text != checksum:
-                raise AssertionError("checksum mismatch, sent %s to save, but got %s from backend" % (checksum, res.text))
+                raise BlockStorageError("checksum mismatch, sent %s to save, but got %s from backend" % (checksum, res.text))
             self._checksums.add(checksum) # add to local cache
             return res.text, res.status_code
 
@@ -86,7 +122,7 @@ class BlockStorageClient(WebStorageClient):
         data = res.content
         if verify:
             if checksum != self._blockdigest(data):
-                raise AssertionError("Checksum mismatch %s requested, %s get" % (checksum, self._blockdigest(data)))
+                raise BlockStorageError("Checksum mismatch %s requested, %s get" % (checksum, self._blockdigest(data)))
         return data
 
     def get_verify(self, checksum):

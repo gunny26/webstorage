@@ -4,6 +4,7 @@ import os
 import time
 import random
 import hashlib
+import unittest
 import logging
 logging.basicConfig(level=logging.DEBUG)
 #logging.getLogger("requests").setLevel(logging.WARNING)
@@ -13,6 +14,14 @@ from BlockStorageClient import BlockStorageClient as BlockStorageClient
 
 if __name__ == "__main__":
     bs = BlockStorageClient()
+    print("getting information about BlockStorage Backend")
+    print(bs.get_info())
+    bs.get_checksums(epoch=2)
+    print("getting last blockchain entry")
+    print(bs.get_epoch(bs.info["blockchain_epoch"]))
+    print("getting journal of last 10 blockchain entries")
+    for entry in bs.get_journal(bs.info["blockchain_epoch"] - 10):
+        print(entry)
     print("found %d existing checksums" % len(bs.checksums))
     print("checking 10 random blocks")
     for checksum in random.sample(bs.checksums, 10):

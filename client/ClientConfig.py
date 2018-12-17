@@ -16,16 +16,16 @@ class ClientConfig(object):
         """
         self.client_config = None
         if os.name == "nt":
-            homepath = os.path.join(os.path.expanduser("~"), "AppData", "Local", "webstorage")
+            self._homepath = os.path.join(os.path.expanduser("~"), "AppData", "Local", "webstorage")
         else:
-            homepath = os.path.join(os.path.expanduser("~"), ".webstorage")
-        logging.debug("using config directory %s", homepath)
-        if not os.path.isdir(homepath):
-            print("please create directory {}".format(homepath))
+            self._homepath = os.path.join(os.path.expanduser("~"), ".webstorage")
+        logging.debug("using config directory %s", self._homepath)
+        if not os.path.isdir(self._homepath):
+            print("please create directory {}".format(self._homepath))
             sys.exit(1)
         else:
             # first best use newer json format file
-            configfile = os.path.join(homepath, "WebStorageClient.json")
+            configfile = os.path.join(self._homepath, "WebStorageClient.json")
             if os.path.isfile(configfile):
                 with open(configfile, "rt") as infile:
                     self.client_config = json.load(infile)
@@ -33,6 +33,10 @@ class ClientConfig(object):
             else:
                 print("please create configuration file %s" % configfile)
                 sys.exit(2)
+
+    @property
+    def homepath(self):
+        return self._homepath
 
     @property
     def blockstorages(self):

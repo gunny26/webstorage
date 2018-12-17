@@ -57,6 +57,23 @@ class WebStorageClient(object):
         except TypeError:
             return res.json
 
+    def _get_chunked(self, method, data=None):
+        """
+        call url and received chunked content to yield
+        """
+        url = "/".join((self._url, method))
+        if data is not None:
+            self._logger.info("adding search parameters : %s", data)
+        self._logger.info("calling %s", url)
+        res = requests.get(url, params=data, headers=self._headers, proxies=self._proxies, stream=True)
+        logging.debug("got Status code : %s", res.status_code)
+        if res.status_code == 200:
+            return res
+        elif res.status_code == 404:
+            raise KeyError("HTTP 404 received")
+        else:
+            raise Exception("got status %d for call to %s" % (res.status_code, url))
+
     def _blockdigest(self, data):
         """
         single point of digesting return hexdigest of data
