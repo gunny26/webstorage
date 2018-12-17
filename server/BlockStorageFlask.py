@@ -60,13 +60,14 @@ def info():
         json.dumps({
             "id" : CONFIG["id"],
             "blocksize" : int(CONFIG["blocksize"]),
-            "blocks" : len(CHECKSUMS), # number of stored blocks
-            "st_mtime" : os.stat(CONFIG["storage_dir"]).st_mtime,
             "hashfunc" : CONFIG["hashfunc"],
-            "size" : size, # maximum number of blocks storable
-            "free" : free, # maximum number of blocks left to store
-            "epoch" : blockchain["epoch"], # blockchain epoch
-            "sha256_checksum" : blockchain["sha256_checksum"], # last blockchain hash
+            "blocks" : len(CHECKSUMS), # number of stored blocks
+            "storage_st_mtime" : os.stat(CONFIG["storage_dir"]).st_mtime,
+            "storage_size" : size, # maximum number of blocks storable
+            "storage_free" : free, # maximum number of blocks left to store
+            "blockchain_epoch" : blockchain["epoch"], # blockchain epoch
+            "blockchain_checksum" : blockchain["sha256_checksum"], # last blockchain hash
+            "blockchain_seed" : app.config["app_config"]["blockchain_seed"], # initial seed used
             }),
         status=200,
         mimetype="application/json"
@@ -152,20 +153,48 @@ def get_checksums():
 @xapikey
 def get_journal(epoch):
     """
-    return all checksums past epoch provided
+    return all checksums past epoch provided, or 404 if no data returned
     """
     starttime = time.time()
     with sqlite3.connect(DB_FILENAME) as con:
         c = con.cursor()
         checksums = c.execute("select checksum from blockchain where rowid > ?", (epoch,)).fetchall()
-        checksum_json = [checksum[0].decode("ascii") for checksum in checksums]
-        logger.info("found %d checksums past epoch %d", len(checksums), epoch)
-        response = app.response_class(
-            response=json.dumps(checksum_json), # TODO: this could use much memory
-            status=200,
-            mimetype='application/json'
-        )
-        return response
+        if checksums:
+            checksum_json = [checksum[0].decode("ascii") for checksum in checksums]
+            logger.info("found %d checksums past epoch %d", len(checksums), epoch)
+            response = app.response_class(
+                response=json.dumps(checksum_json), # TODO: this could use much memory
+                status=200,
+                mimetype='application/json'
+            )
+            return response
+        else:
+            return "epoch not found", 404
+
+@app.route('/epoch/<int:epoch>', methods=["GET"])
+@xapikey
+def get_epoch(epoch):
+    """
+    return epoch information, like checksum added, and blockchain checksum
+    """
+    starttime = time.time()
+    with sqlite3.connect(DB_FILENAME) as con:
+        c = con.cursor()
+        res = c.execute("select rowid, checksum, sha256 from blockchain where rowid = ?", (epoch,)).fetchone()
+        if res:
+            data = {
+                "epoch" : res[0],
+                "checksum" : res[1].decode("ascii"),
+                "sha256" : res[2].decode("ascii"),
+            }
+            response = app.response_class(
+                response=json.dumps(data),
+                status=200,
+                mimetype='application/json'
+            )
+            return response
+        else:
+            return "epoch not found", 404
 
 @app.route('/<checksum>', methods=["GET"])
 @xapikey
@@ -339,9 +368,16 @@ for key, value in _get_config("/var/www/BlockStorageWebApp.yaml").items(): # TOD
 app.config["app_checksums"] = {}
 # initialize blockchain database
 DB_FILENAME = app.config["app_config"]["blockchain_db"]
-seed_sha256 = hashlib.sha256()
-seed_sha256.update(app.config["app_config"]["id"].encode("ascii"))
-_blockchain_init(seed_sha256.hexdigest())
+logger.info("using blockchain database %s", app.config["app_config"]["blockchain_db"])
+if app.config["app_config"].get("blockchain_seed") is None:
+    logger.info("seed not specified, so calculating from id of blockstorage")
+    seed_sha256 = hashlib.sha256()
+    seed_sha256.update(app.config["app_config"]["id"].encode("ascii"))
+    app.config["app_config"]["blockchain_seed"] = seed_sha256.hexdigest()
+else:
+    logger.info("blockchain seed defined in config file")
+logger.info("blockchain seed : %s", app.config["app_config"]["blockchain_seed"])
+_blockchain_init(app.config["app_config"]["blockchain_seed"]) # TODO: check if seed is valid in database
 CHECKSUMS = app.config["app_checksums"]
 CHECKSUMS = _blockchain_checksums()
 logger.info("found %d checksums in blockchain database", len(CHECKSUMS))
