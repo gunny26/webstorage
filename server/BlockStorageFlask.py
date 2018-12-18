@@ -134,6 +134,28 @@ def get_stream():
         logger.info("size in request was %s", data["size"])
     return Response(generator(), mimetype=mimetype)
 
+@app.route('/checksums/<int:epoch>', methods=["GET"])
+@xapikey
+def get_checksums_stream(epoch=2):
+    """
+    stream list of checksums as big binary blob
+    chunked in blocks
+
+    epoch to indicate from wich epoch number the cecksums should be delivered
+    epoch = 2 means start (lowest rowid is 1, and first epoch is seed)
+    """
+    mimetype = "application/octet-stream"
+    blocklength = 512
+    start = max(0, epoch-2)
+    end = len(CHECKSUMS)
+    def generator():
+        for index in range(start, end, blocklength):
+            byte_buffer = b""
+            for checksum in CHECKSUMS[index:min(index+blocklength, end)]:
+                byte_buffer += int(checksum, 16).to_bytes(20, "big")
+            yield byte_buffer
+    return Response(generator(), mimetype=mimetype)
+
 @app.route('/', methods=["GET"])
 @xapikey
 def get_checksums():
@@ -258,7 +280,7 @@ def options(checksum):
 
     either raise 404
     """
-    if (checksum in CHECKSUMS) or os.path.exists(_get_filename(checksum)):
+    if checksum in CHECKSUMS or os.path.exists(_get_filename(checksum)):
         return "checksum exists", 200
     return "checksum not found", 404
 
