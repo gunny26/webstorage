@@ -35,31 +35,13 @@ class BlockStorageClient(WebStorageClient):
         self._cache = cache # cache blockdigests or not
         self._info = self._get_json("info")
         # search for cachefiles, and load local data
-        self._cachefile = None
-        for filename in os.listdir(self._client_config.homepath):
-            if filename.startswith(self._info["id"]):
-                cache_epoch = int(filename.split("_")[1].split(".")[0])
-                self._logger.info("found checksum cache file until epoch %d", cache_epoch)
-                if cache_epoch > self._info["blockchain_epoch"]: # something wrong
-                    self._logger.error("cachefile %s is invalid", filename)
-                    os.unlink(os.path.join(self._client_config.homepath, filename))
-                elif cache_epoch != self._info["blockchain_epoch"]: # not the latest set
-                    self._logger.info("local cache should be updated %d epochs", (self._info["blockchain_epoch"] - cache_epoch))
-                else: # ok this could be used
-                    self._cachefile = os.path.join(self._client_config.homepath, filename)
-        if self._cachefile is None: # generate new cachefile
-            self._cachefile = "%s_%s.bin" % (self._info["id"], self._info["blockchain_epoch"])
-            self._cachefile = os.path.join(self._client_config.homepath, self._cachefile)
-            self.get_checksums(2)
+        self._checksums = None
+        cachefile, cache_epoch = self._choose_cachefile(self._client_config.homepath, self._info["id"], self._info["blockchain_epoch"])
+        if cache_epoch < self._info["blockchain_epoch"]:
+            self._logger.info("TODO: update local cache, fallback get whole data")
+            self._dump_checksums(cachefile, 2)
         # load stored data
-        self._checksums = []
-        self._logger.info("using cachefile %s", self._cachefile)
-        data = array.array("B")
-        with open(self._cachefile, "rb") as infile:
-            data.fromfile(infile, os.stat(self._cachefile).st_size)
-            for index in range(0, len(data), 20):
-                checksum = "".join(["%02x" % item for item in data[index:index+20]])
-                self._checksums.append(checksum)
+        self._checksums = self._load_checksums(cachefile)
 
     @property
     def blocksize(self):
@@ -73,7 +55,7 @@ class BlockStorageClient(WebStorageClient):
     def checksums(self):
         if (self._cache == True) and (not self._checksums):
             self._logger.info("getting existing checksums")
-            self._checksums = set(self._get_json())
+            self._checksums = self._get_json()
         return self._checksums
 
     def get_info(self):
@@ -95,14 +77,12 @@ class BlockStorageClient(WebStorageClient):
         """
         return self._get_json("journal/%d" % epoch)
 
-    def get_checksums(self, epoch, filename=None):
+    def get_checksums(self, epoch, filename):
         """
-        write binary blob of checksums to cachefile
+        write binary blob of checksums to some file
         """
         res = self._get_chunked("checksums/%d" % epoch)
-        self._logger.info("writing %s", self._cachefile)
-        if filename is None:
-            filename = self._cachefile
+        self._logger.info("writing %s", filename)
         with open(filename, "wb") as outfile:
             for chunk in res:
                 outfile.write(chunk)
@@ -113,7 +93,7 @@ class BlockStorageClient(WebStorageClient):
             raise BlockStorageError("length of providede data (%s) is above maximum blocksize of %s" % (len(data), self.blocksize))
         checksum = self._blockdigest(data)
         if use_cache and checksum in self.checksums:
-            self._logger.debug("202 - skip this block, checksum is in list of stored checksums")
+            self._logger.debug("202 - skip this block, checksum is in list of cached checksums")
             return checksum, 202
         else:
             res = self._request("put", checksum, data=data)
@@ -155,4 +135,99 @@ class BlockStorageClient(WebStorageClient):
         res = self._get_chunked("meta")
         for chunk in res.iter_lines(decode_unicode=True):
             yield json.loads(chunk)
+
+    def verify_bockchain(self):
+        """
+        verify blockchain providede by backend
+
+        returns: True if blockchain is valid
+        """
+        # epoch counting starts at 1
+        # epoch 1 has no checksum only seed
+        # epoch 2 is the first full entry
+        epoch = 1
+        print("seed                         : ", info["blockchain_seed"])
+        last_sha256 = info["blockchain_seed"]
+        sha256 = hashlib.sha256()
+        for index, checksum in enumerate(bsc.checksums):
+            epoch = index + 2 # forst real epoch is 2
+            sha256 = hashlib.sha256()
+            # use epoch of last sha256 key + last sha256 key + actual checksum
+            sha256.update(str(epoch-1).encode("ascii") + last_sha256.encode("ascii") + checksum.encode("ascii"))
+            last_sha256 = sha256.hexdigest()
+        print("calculated until epoch       : ", epoch)
+        print("latest checksum              : ", checksum)
+        print("resulting blockchain_checksum: ", last_sha256)
+        print("blockchain_checksum          : ", info["blockchain_checksum"])
+        if last_sha256 == info["blockchain_checksum"]:
+            print("blockchain is valid")
+            return True
+        print("blockchain is invalid")
+        return False
+
+##################### private section #####################################
+
+    def _dump_checksums(self, cachefile, epoch=2):
+        """
+        write binary blob of checksums to cachefile
+
+        to get whole checksums from backend use
+            epoch=2
+        returns: None
+        """
+        res = self._get_chunked("checksums/%d" % epoch)
+        self._logger.info("writing %s", cachefile)
+        mode = "wb"
+        if epoch != 2:
+            mode = "ab" # append if epoch higher than 2
+        with open(cachefile, mode) as outfile:
+            for chunk in res:
+                outfile.write(chunk)
+
+    def _load_checksums(self, cachefile):
+        """
+        loading list of checksums from locally stored binary blob
+
+        using: cachefile
+        returning: checksums
+        """
+        checksums = []
+        self._logger.info("using cachefile %s", cachefile)
+        data = array.array("B")
+        with open(cachefile, "rb") as infile:
+            data.fromfile(infile, os.stat(cachefile).st_size)
+            for index in range(0, len(data), 20):
+                checksum = "".join(["%02x" % item for item in data[index:index+20]])
+                checksums.append(checksum)
+        self._logger.info("loaded %d checksum from cache", len(checksums))
+        return checksums
+
+    def _choose_cachefile(self, directory, backend_id, backend_epoch):
+        """
+        try to find the best cachefile available
+        using: self._client_config, self._info
+        modfying: self._cachefile
+        returning: cachefile, cachefile_epoch
+        """
+        cache_file = None
+        cache_epoch = 2 # the lowest possible
+        cache_file = "%s.bin" % backend_id
+        absfilename = os.path.join(directory, cache_file)
+        self._logger.info("absfilename: %s", absfilename)
+        if os.path.isfile(absfilename):
+            cache_epoch = int(os.stat(absfilename).st_size / 20) + 1
+            self._logger.info("cache_epoch: %s", cache_epoch)
+            leftover = os.stat(absfilename).st_size % 20
+            self._logger.info("leftover: %s", leftover)
+            if leftover != 0:
+                self._logger.error("cachefile %s is corrupted, deleting file", cache_file)
+                os.unlink(absfilename)
+                cache_epoch = 2
+            else:
+                self._logger.info("found checksum cache file until epoch %d", cache_epoch)
+                if cache_epoch > backend_epoch: # something wrong
+                    self._logger.error("cachefile %s epoch is higher than backend epoch, deleting file", cache_file)
+                    os.unlink(absfilename)
+                    cache_epoch = 2
+        return absfilename, cache_epoch
 

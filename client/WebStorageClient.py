@@ -38,7 +38,7 @@ class WebStorageClient(object):
         single point of request
         """
         url = "/".join((self._url, path))
-        with self._session.request(method, url, data=data, headers=self._headers, proxies=self._proxies, timeout=10) as res:
+        with self._session.request(method, url, data=data, headers=self._headers, proxies=self._proxies, timeout=180) as res:
             if 199 < res.status_code < 300:
                 return res
             elif 399 < res.status_code < 500:
@@ -64,13 +64,15 @@ class WebStorageClient(object):
         url = "/".join((self._url, method))
         if data is not None:
             self._logger.info("adding search parameters : %s", data)
-        with requests.get(url, params=data, headers=self._headers, proxies=self._proxies, stream=True) as res:
-            if res.status_code == 200:
-                return res
-            elif res.status_code == 404:
-                raise KeyError("HTTP 404 received")
-            else:
-                raise Exception("got status %d for call to %s" % (res.status_code, url))
+        self._logger.info("calling %s", url)
+        res = requests.get(url, params=data, headers=self._headers, proxies=self._proxies, stream=True)
+        self._logger.info("received %s", res.status_code)
+        if res.status_code == 200:
+            return res
+        elif res.status_code == 404:
+            raise KeyError("HTTP 404 received")
+        else:
+            raise Exception("got status %d for call to %s" % (res.status_code, url))
 
     def _blockdigest(self, data):
         """
