@@ -349,6 +349,7 @@ def _blockchain_add(checksum):
         sha256.update(str(epoch).encode("ascii") + last_sha256 + checksum.encode("ascii"))
         # print(epoch, last_sha256, sha256.hexdigest())
         c.execute("insert into blockchain values (?, ?)", (checksum.encode("ascii"), sha256.hexdigest().encode("ascii")))
+        con.commit()
         return {"epoch" : epoch, "sha256_checksum" : sha256.hexdigest().encode("ascii")}
 
 def _blockchain_last():
