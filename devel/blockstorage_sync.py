@@ -40,13 +40,13 @@ def status():
 if __name__ == "__main__":
     bs = BlockStorageClient()
     print(json.dumps(bs.info, indent=4))
-    bs_target = BlockStorageClient(url="http://neutrino.messner.click/bs001", apikey="")
+    bs_target = BlockStorageClient(url="http://wsa02.messner.click/bs001", apikey="")
     print(json.dumps(bs_target.info, indent=4))
     num_worker_threads = 8
     # preparing list of checksums
     starttime = time.time()
     print("building list of differing blocks")
-    checksums = [checksum for checksum in bs.checksums if checksum not in bs_target.checksums]
+    checksums = [checksum for checksum in set(bs.checksums) if checksum not in set(bs_target.checksums)]
     print("done in %0.2f found %d blocks to sync", (time.time() - starttime, len(checksums)))
     starttime = time.time()
     print("preparing queue")

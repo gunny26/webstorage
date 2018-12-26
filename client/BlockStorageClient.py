@@ -96,7 +96,7 @@ class BlockStorageClient(WebStorageClient):
             self._logger.debug("202 - skip this block, checksum is in list of cached checksums")
             return checksum, 202
         else:
-            res = self._request("put", checksum, data=data)
+            res = self._request("PUT", checksum, data=data)
             if res.status_code == 201:
                 self._logger.debug("201 - block rewritten")
             if res.text != checksum:
