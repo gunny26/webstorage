@@ -36,10 +36,15 @@ def blockchain_last(con):
     epoch, sha256 = last_epoch.fetchone()
     return {"epoch" : epoch, "sha256_checksum" : sha256.decode("ascii")}
 
-config = yaml.load(open("/var/www/BlockStorageWebApp.yaml"))
-sha256 = hashlib.sha256()
-sha256.update(config["id"].encode("ascii"))
-seed =  sha256.hexdigest()
+config = yaml.load(open("/var/www/blockstorage/blockstorage.yaml"))
+if "blockchain_seed" in config:
+    seed = config["blockchain_seed"]
+else:
+    logger.info("calculating seed from blockstorage id")
+    logger.info("this could be a problem, if you plan to mirror from another blockstorage")
+    sha256 = hashlib.sha256()
+    sha256.update(config["id"].encode("ascii"))
+    seed =  sha256.hexdigest()
 logger.info("seed for this BlockStorage: %s", seed)
 checksums = [filename.split(".")[0] for filename in os.listdir(config["storage_dir"])]
 logger.info("found %d checksums stored on filesystem" % len(checksums))
