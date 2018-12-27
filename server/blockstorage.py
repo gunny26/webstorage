@@ -328,79 +328,6 @@ def _get_checksums(storage_dir):
     logger.info("found %d existing checksums", len(checksums))
     return checksums
 
-def _blockchain_init(sha256_seed):
-    """
-    initialize blockchain table with first entry aka epoch 0
-    """
-    with sqlite3.connect(app.config["blockchain_db"]) as con:
-        c = con.cursor()
-        res = c.execute("SELECT name FROM sqlite_master WHERE name='blockchain'")
-        if not res.fetchone():
-            logger.info("creating table blockchain and inserting seed checksum")
-            c.execute("create table if not exists blockchain (checksum char(40), sha256 char(64))")
-            c.execute("insert into blockchain values (?, ?)", (None, sha256_seed.encode("ascii")))
-            con.commit()
-
-def _blockchain_add(checksum):
-    """
-    add checksum to blockchain and return epoch and last sha56
-    """
-    with sqlite3.connect(app.config["blockchain_db"]) as con:
-        c = con.cursor()
-        last_epoch = c.execute("select rowid, sha256 from blockchain order by rowid desc limit 1")
-        epoch, last_sha256 = last_epoch.fetchone()
-        sha256 = hashlib.sha256()
-        sha256.update(str(epoch).encode("ascii") + last_sha256 + checksum.encode("ascii"))
-        # print(epoch, last_sha256, sha256.hexdigest())
-        c.execute("insert into blockchain values (?, ?)", (checksum.encode("ascii"), sha256.hexdigest().encode("ascii")))
-        con.commit()
-        return {"epoch" : epoch, "sha256_checksum" : sha256.hexdigest().encode("ascii")}
-
-def _blockchain_last():
-    """
-    return last epoch and last sha256
-    """
-    with sqlite3.connect(app.config["blockchain_db"]) as con:
-        c = con.cursor()
-        last_epoch = c.execute("select rowid, sha256 from blockchain order by rowid desc limit 1")
-        epoch, sha256 = last_epoch.fetchone()
-        return {"epoch" : epoch, "sha256_checksum" : sha256.decode("ascii")}
-
-def _blockchain_checksums():
-    """
-    return all checksums
-    """
-    with sqlite3.connect(app.config["blockchain_db"]) as con:
-        c = con.cursor()
-        checksums = c.execute("select checksum from blockchain where checksum is not null").fetchall()
-        logger.info("found %d checksums in database", len(checksums))
-        return [checksum[0].decode("ascii") for checksum in checksums]
-
-def _blockchain_journal(epoch):
-    """
-    return list of checksums beginning with epoch
-    """
-    with sqlite3.connect(app.config["blockchain_db"]) as con:
-        c = con.cursor()
-        return c.execute("select checksum from blockchain where rowid > ?", (epoch,)).fetchall()
-
-def _blockchain_epoch(epoch):
-    """
-    return row with epoch
-    """
-    with sqlite3.connect(app.config["blockchain_db"]) as con:
-        c = con.cursor()
-        return c.execute("select rowid, checksum, sha256 from blockchain where rowid = ?", (epoch,)).fetchone()
-
-def _blockchain_diff(epoch):
-    """
-    return all checksums after epoch
-    """
-    with sqlite3.connect(app.config["blockchain_db"]) as con:
-        c = con.cursor()
-        checksums = c.execute("select checksum from blockchain where rowid>?", (epoch,)).fetchall()
-        return [checksum[0].decode("ascii") for checksum in checksums]
-
 def application(environ, start_response):
     """
     will be called on every request
@@ -429,7 +356,7 @@ def application(environ, start_response):
             logger.info("blockchain seed defined in config file")
         logger.info("blockchain seed : %s", app.config["blockchain_seed"])
         bc.init(app.config["blockchain_seed"]) # TODO: check if seed is valid in database
-        app.config["checksums"] = _blockchain_checksums()
+        app.config["checksums"] = bc.checksums()
         logger.info("found %d checksums in blockchain database", len(app.config["checksums"]))
         logger.info("INIT finished")
     return app(environ, start_response)
