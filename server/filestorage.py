@@ -202,7 +202,7 @@ def _get_filename(checksum):
     """
     get os filename for provided checksum
     """
-    assert len(checksum) == app.cnfig["maxlength"]
+    assert len(checksum) == app.config["maxlength"]
     return os.path.join(app.config["storage_dir"], "%s.json" % checksum)
 
 def _get_config(config_filename):
