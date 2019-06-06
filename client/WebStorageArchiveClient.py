@@ -25,10 +25,6 @@ class WebStorageArchiveClient(WebStorageClient):
             self._url = self._client_config.archive_url
         else:
             self._url = url
-        if not apikey:
-            self._apikey = self._client_config.archive_apikey
-        else:
-            self._apikey = apikey
         super().__init__()
 
     def get_backupsets(self, hostname=None):
@@ -42,7 +38,7 @@ class WebStorageArchiveClient(WebStorageClient):
         """
         result = {}
         rex = re.compile(r"^(.+)_(.+)_(.+)\.wstar\.gz$")
-        for basename, value in self._get_json().items():
+        for basename, value in self._get_json("").items():
             size = value["size"]
             match = rex.match(basename)
             if match is not None:
@@ -88,4 +84,4 @@ class WebStorageArchiveClient(WebStorageClient):
     def put(self, data, filename):
         """ put archive """
         filename64 = base64.b64encode(filename.encode("utf-8"))
-        return self._request("put", filename64.decode("utf-8"), data=json.dumps(data))
+        return self._put(filename64.decode("utf-8"), data=json.dumps(data))

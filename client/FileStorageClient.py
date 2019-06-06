@@ -19,7 +19,7 @@ class FileStorageClient(WebStorageClient):
 
     __version = "1.1"
 
-    def __init__(self, url=None, apikey=None, cache=True):
+    def __init__(self, url=None, cache=True):
         """__init__"""
         self._logger = logging.getLogger(self.__class__.__name__)
         self._client_config = ClientConfig()
@@ -27,10 +27,6 @@ class FileStorageClient(WebStorageClient):
             self._url = self._client_config.filestorage_url
         else:
             self._url = url
-        if not apikey:
-            self._apikey = self._client_config.filestorage_apikey
-        else:
-            self._apikey = apikey
         super().__init__()
         self._bs = BlockStorageClient(cache=cache)
         self._info = self._get_json("info") # TODO: use it
@@ -90,7 +86,7 @@ class FileStorageClient(WebStorageClient):
         metadata["checksum"] = filedigest
         if self.exists(filedigest) is not True: # check if filehash is already stored
             self._logger.debug("storing recipe for filechecksum: %s", filedigest)
-            res = self._request("put", filedigest, data=json.dumps(metadata))
+            res = self._put(filedigest, data=json.dumps(metadata))
             if res.status_code == 201: # could only be true at some rare race conditions
                 self._logger.debug("recipe for checksum %s exists already", filedigest)
                 metadata["filehash_exists"] = True
@@ -113,7 +109,7 @@ class FileStorageClient(WebStorageClient):
         delete blockchain defined by hexdigest
         the underlying data in BlockStorage will not be deleted
         """
-        self._request("delete", checksum)
+        self._delete(checksum)
 
     def get(self, checksum):
         """

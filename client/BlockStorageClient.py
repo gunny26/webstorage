@@ -6,8 +6,6 @@ RestFUL Webclient to use BlockStorage WebApps
 import os
 import array
 import logging
-# non std
-import requests
 # own modules
 from webstorageClient.ClientConfig import ClientConfig
 from webstorageClient.WebStorageClient import WebStorageClient
@@ -18,7 +16,7 @@ class BlockStorageError(Exception):
 class BlockStorageClient(WebStorageClient):
     """stores chunks of data into BlockStorage"""
 
-    def __init__(self, url=None, apikey=None, cache=True):
+    def __init__(self, url=None, cache=True):
         """__init__"""
         self._logger = logging.getLogger(self.__class__.__name__)
         self._client_config = ClientConfig()
@@ -26,10 +24,6 @@ class BlockStorageClient(WebStorageClient):
             self._url = self._client_config.blockstorage_url
         else:
             self._url = url
-        if apikey is None:
-            self._apikey = self._client_config.blockstorage_apikey
-        else:
-            self._apikey = apikey
         super().__init__()
         # get info from backend
         self._cache = cache # cache blockdigests or not
@@ -37,7 +31,9 @@ class BlockStorageClient(WebStorageClient):
         # search for cachefiles, and load local data
         self._checksums = None
         cachefile, cache_epoch = self._choose_cachefile(self._client_config.homepath, self._info["id"], self._info["blockchain_epoch"])
-        if cache_epoch < self._info["blockchain_epoch"]:
+        if cache_epoch == 2: # fresh file
+            self._dump_checksums(cachefile, 2)
+        elif cache_epoch < self._info["blockchain_epoch"]:
             self._logger.info("TODO: update local cache, fallback get whole data")
             self._dump_checksums(cachefile, 2)
         # load stored data
@@ -96,7 +92,7 @@ class BlockStorageClient(WebStorageClient):
             self._logger.debug("202 - skip this block, checksum is in list of cached checksums")
             return checksum, 202
         else:
-            res = self._request("PUT", checksum, data=data)
+            res = self._put(checksum, data=data)
             if res.status_code == 201:
                 self._logger.debug("201 - block rewritten")
             if res.text != checksum:
@@ -109,7 +105,7 @@ class BlockStorageClient(WebStorageClient):
         get data defined by hexdigest from storage
         if verify - recheck checksum locally
         """
-        res = self._request("get", checksum)
+        res = self._get(checksum)
         data = res.content
         if verify:
             if checksum != self._blockdigest(data):

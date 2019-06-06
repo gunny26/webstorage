@@ -51,20 +51,12 @@ class ClientConfig(object):
         return self.blockstorage["url"]
 
     @property
-    def blockstorage_apikey(self):
-        return self.blockstorage["apikey"]
-
-    @property
     def filestorage(self):
         return [filestorage for filestorage in self.client_config["filestorages"] if filestorage["default"] == True][0]
 
     @property
     def filestorage_url(self):
         return self.filestorage["url"]
-
-    @property
-    def filestorage_apikey(self):
-        return self.filestorage["apikey"]
 
     @property
     def archive(self):
@@ -75,22 +67,16 @@ class ClientConfig(object):
         return self.archive["url"]
 
     @property
-    def archive_apikey(self):
-        return self.archive["apikey"]
+    def requests_verify(self):
+        return self.client_config["request_verify"]
 
     @property
-    def https_proxy(self):
-        try:
-            return self.client_config["proxies"]["https"]
-        except KeyError:
-            return
+    def apikey(self):
+        return self.client_config["apikey"]
 
     @property
-    def http_proxy(self):
-        try:
-            return self.client_config["proxies"]["http"]
-        except KeyError:
-            return
+    def proxies(self):
+        return self.client_config["proxies"]
 
     def __str__(self):
         return json.dumps(self.client_config, indent=4)
