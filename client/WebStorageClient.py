@@ -7,6 +7,8 @@ import os
 import sys
 import hashlib
 import logging
+import json
+# non std
 import requests
 # own modules
 from webstorageClient.ClientConfig import ClientConfig
@@ -39,87 +41,88 @@ class WebStorageClient(object):
         self._session.timeout = 180
         self.hashfunc = hashlib.sha1
 
+    def _call(self, *args, **kwds):
+        """
+        most basic method to make a http call
+        """
+        method = args[0] # first is http method
+        r_args = args[1:] # then path or other things
+        # do the renew 30 seconds before exp
+        #if self._id_token and self._id_token["exp"] <= (int(time.time()) + 30):
+        #    self.logger.info("token will expire <= 30 seconds")
+        #    if self._discovery:
+        #        self.logger.info("getting new token")
+        #        self.__enter__()
+        if method.upper() == "GET":
+            res = self._session.get(*r_args, **kwds)
+        elif method.upper() == "PUT":
+            res = self._session.put(*r_args, **kwds)
+        elif method.upper() == "POST":
+            res = self._session.post(*r_args, **kwds)
+        elif method.upper() == "DELETE":
+            res = self._session.delete(*r_args, **kwds)
+        elif method.upper() == "OPTIONS":
+            res = self._session.options(*r_args, **kwds)
+        else:
+            raise NotImplementedError("HTTP Method %s is not implemented" % method)
+        if res.status_code < 500: # everything below 500 is acceptable
+            if res.status_code == 200:
+                return res
+            if res.status_code == 401:
+                raise IOError("unauthorized to access %s" % r_args[0])
+            if res.status_code in (301, 302): # redirects
+                self._logger.debug(json.dumps(dict(res.headers), indent=4))
+                self._logger.debug(res.text)
+                return res
+            if res.status_code == 404:
+                raise KeyError(res.reason)
+        # you schould not get there
+        self._logger.debug(json.dumps(dict(res.headers), indent=4))
+        self._logger.info("Status Code: %s", res.status_code)
+        self._logger.error(res.text)
+        raise IOError(res.reason)
+
     def _delete(self, path):
         """
         single point of request
         """
         url = "/".join((self._url, path))
-        res = self._session.delete(url)
-        if 199 < res.status_code < 300:
-            return res
-        elif 399 < res.status_code < 500:
-            raise KeyError("HTTP_STATUS %s received" % res.status_code)
-        elif 499 < res.status_code < 600:
-            raise IOError("HTTP_STATUS %s received" % res.status_code)
+        return self._call("DELETE", url)
 
     def _get(self, path, params=None):
         """
         single point of request
         """
         url = "/".join((self._url, path))
-        res = self._session.get(url, params=params)
-        if 199 < res.status_code < 300:
-            return res
-        elif 399 < res.status_code < 500:
-            raise KeyError("HTTP_STATUS %s received" % res.status_code)
-        elif 499 < res.status_code < 600:
-            raise IOError("HTTP_STATUS %s received" % res.status_code)
+        return self._call("GET", url, params=params)
 
     def _put(self, path, data=None):
         """
         single point of request
         """
         url = "/".join((self._url, path))
-        res = self._session.get(url, data=data)
-        if 199 < res.status_code < 300:
-            return res
-        elif 399 < res.status_code < 500:
-            raise KeyError("HTTP_STATUS %s received" % res.status_code)
-        elif 499 < res.status_code < 600:
-            raise IOError("HTTP_STATUS %s received" % res.status_code)
+        return self._call("PUT", url, data=data)
 
     def _post(self, path, data=None):
         """
         single point of request
         """
         url = "/".join((self._url, path))
-        res = self._session.post(url, data=data)
-        if 199 < res.status_code < 300:
-            return res
-        elif 399 < res.status_code < 500:
-            raise KeyError("HTTP_STATUS %s received" % res.status_code)
-        elif 499 < res.status_code < 600:
-            raise IOError("HTTP_STATUS %s received" % res.status_code)
-
+        return self._call("POST", url, data=data)
 
     def _get_json(self, path, params=None):
         """
         single point of json requests
         """
-        res = self._get(path, params=params)
-        # hack to be compatible with older requests versions
-        try:
-            return res.json()
-        except TypeError:
-            return res.json
+        url = "/".join((self._url, path))
+        return self._call("GET", url, params=params).json()
 
     def _get_chunked(self, path, params=None):
         """
         call url and received chunked content to yield
         """
         url = "/".join((self._url, path))
-        if data is not None:
-            self._logger.info("adding search parameters : %s", data)
-        self._logger.info("calling %s", url)
-        # this does not work with self._session, i dont know why
-        res = self._session.get(url, params=data, stream=True)
-        self._logger.info("received %s", res.status_code)
-        if res.status_code == 200:
-            return res
-        elif res.status_code == 404:
-            raise KeyError("HTTP 404 received")
-        else:
-            raise Exception("got status %d for call to %s" % (res.status_code, url))
+        return self._call("GET", url, params=params, stream=True)
 
     def _blockdigest(self, data):
         """
@@ -134,8 +137,9 @@ class WebStorageClient(object):
         OPTIONS call to path, if status_code == 200 return True
         otherwise False
         """
+        url = "/".join((self._url, path))
         try:
-            if self._session.request("options", path).status_code == 200:
+            if self._call("OPTIONS", url).status_code == 200:
                 return True
         except KeyError: # 404 if not found
             return False
